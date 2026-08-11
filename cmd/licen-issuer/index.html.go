@@ -47,8 +47,34 @@ const indexHTML = `<!DOCTYPE html>
   tr:hover td { background: #fafbfd; }
   .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
   .badge.valid { background: #e6f7ec; color: #168a2f; }
+  .badge.expiring { background: #fff7e6; color: #b76e00; }
   .badge.expired { background: #fef3e6; color: #b76e00; }
   .badge.revoked { background: #fdeeee; color: #d92d20; }
+  /* 到期提醒条 */
+  .alert { display: none; background: #fff7e6; border: 1px solid #f5d9a8; color: #b76e00; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; }
+  .alert.show { display: flex; align-items: center; gap: 8px; }
+  .alert .expired-alert { color: #d92d20; }
+  /* 时间线弹窗 */
+  .modal-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; }
+  .modal-mask.show { display: flex; align-items: flex-start; justify-content: center; padding: 60px 20px; }
+  .modal { background: #fff; border-radius: 14px; width: 860px; max-width: 100%; max-height: 80vh; overflow-y: auto; padding: 24px; box-shadow: 0 8px 30px rgba(0,0,0,.18); }
+  .modal h3 { font-size: 16px; margin-bottom: 16px; border-left: 3px solid #2563eb; padding-left: 10px; }
+  .modal .close-x { float: right; cursor: pointer; color: #8a919f; font-size: 18px; }
+  .tl { position: relative; padding-left: 24px; }
+  .tl::before { content: ''; position: absolute; left: 7px; top: 8px; bottom: 8px; width: 2px; background: #e5e7eb; }
+  .tl-item { position: relative; margin-bottom: 18px; }
+  .tl-item::before { content: ''; position: absolute; left: -23px; top: 6px; width: 12px; height: 12px; border-radius: 50%; background: #2563eb; border: 2px solid #fff; box-shadow: 0 0 0 2px #2563eb; }
+  .tl-item.revoked::before { background: #d92d20; box-shadow: 0 0 0 2px #d92d20; }
+  .tl-item.expiring::before { background: #b76e00; box-shadow: 0 0 0 2px #b76e00; }
+  .tl-item.expired::before { background: #8a919f; box-shadow: 0 0 0 2px #8a919f; }
+  .tl-item .tl-title { font-size: 14px; font-weight: 600; }
+  .tl-item .tl-meta { font-size: 12px; color: #8a919f; margin-top: 4px; line-height: 1.7; }
+  .tl-item .tl-meta .mono { color: #555; }
+  /* 客户下拉（datalist 样式提示） */
+  .field .hint { font-size: 11px; color: #2563eb; margin-top: 4px; display: none; }
+  .field .hint.show { display: block; }
+  .counts { display: flex; gap: 14px; font-size: 12px; color: #8a919f; margin-left: auto; }
+  .counts b { font-size: 13px; }
   .mono { font-family: "SF Mono", Consolas, monospace; font-size: 12px; color: #555; }
   .op-btn { padding: 4px 12px; border: 1px solid #d5d9e0; border-radius: 6px; background: #fff; font-size: 12px; cursor: pointer; margin-right: 6px; }
   .op-btn:hover { border-color: #2563eb; color: #2563eb; }
@@ -78,7 +104,8 @@ const indexHTML = `<!DOCTYPE html>
       </div>
       <div class="field">
         <label>产品标识 <span style="color:#d92d20">*</span></label>
-        <input id="product" value="licen-server" placeholder="例如: ai-engine">
+        <input id="product" value="licen-server" list="productList" placeholder="例如: ai-engine">
+        <datalist id="productList"></datalist>
       </div>
       <div class="field">
         <label>版本/套餐</label>
@@ -94,7 +121,9 @@ const indexHTML = `<!DOCTYPE html>
       </div>
       <div class="field full">
         <label>客户名称</label>
-        <input id="customer" placeholder="例如: 某某电力集团">
+        <input id="customer" list="customerList" placeholder="例如: 某某电力集团（已有客户可下拉选择，自动带出最近签发参数）" oninput="onCustomerInput()">
+        <datalist id="customerList"></datalist>
+        <div class="hint" id="customerHint"></div>
       </div>
       <div class="field full">
         <label>功能点（逗号分隔，可选）</label>
@@ -114,11 +143,14 @@ const indexHTML = `<!DOCTYPE html>
 
   <div class="result" id="result"></div>
 
+  <div class="alert" id="expireAlert"></div>
+
   <div class="card">
     <h2>📒 已签发授权台账</h2>
     <div class="toolbar">
       <input id="searchBox" placeholder="🔍 搜索客户 / 产品 / License ID" oninput="renderLicenses()">
       <span class="count" id="licCount"></span>
+      <span class="counts" id="licStats"></span>
     </div>
     <div id="licTableWrap">
       <table>
@@ -132,6 +164,7 @@ const indexHTML = `<!DOCTYPE html>
             <th>功能点</th>
             <th>签发时间</th>
             <th>到期时间</th>
+            <th>剩余</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -141,10 +174,22 @@ const indexHTML = `<!DOCTYPE html>
     </div>
     <p class="tip">
       💡 状态说明：<span class="badge valid">有效</span> 正常授权
+      · <span class="badge expiring">即将到期</span> 30 天内到期，请及时续期
       · <span class="badge expired">已过期</span> 超过到期时间
       · <span class="badge revoked">已吊销</span> 已作废（可「重新签发」生成新 License 续期/替换）
       <br>🔁 重新签发：用原参数（客户/产品/节点/功能点/机器码）生成新 License，有效期从今天重新起算，旧 License 自动标记吊销。
+      <br>📜 时序：点击「时序」查看该授权从最初签发至今的完整续签链（每次续签/吊销留痕）。
+      <br>🏷 预填：选择已有客户自动带出该客户最近一次签发参数（产品/版本/节点/功能点/机器码），仅需修改差异项。
     </p>
+  </div>
+</div>
+
+<!-- 时间线弹窗 -->
+<div class="modal-mask" id="tlMask" onclick="if(event.target===this)closeTl()">
+  <div class="modal">
+    <span class="close-x" onclick="closeTl()">✕</span>
+    <h3>📜 授权时序</h3>
+    <div id="tlBody"></div>
   </div>
 </div>
 
@@ -215,6 +260,7 @@ function escapeHtml(s) {
 
 // ---------- 已签发台账 ----------
 let licCache = [];
+let licStats = { valid: 0, expiring: 0, expired: 0, revoked: 0 };
 
 async function loadLicenses() {
   try {
@@ -222,13 +268,69 @@ async function loadLicenses() {
     const resp = await fetch('/api/v1/licenses', { headers: { 'X-Issuer-Token': token } });
     if (resp.status === 401) { return; } // 未鉴权不显示，等签发时输入
     const data = await resp.json();
-    if (data.success) { licCache = data.licenses || []; }
+    if (data.success) { licCache = data.licenses || []; licStats = data.stats || licStats; }
   } catch (e) { /* 静默 */ }
   renderLicenses();
+  renderAlert();
+  loadCustomers();
+}
+
+// 到期提醒条
+function renderAlert() {
+  const el = document.getElementById('expireAlert');
+  const expiring = licStats.expiring || 0;
+  const expired = licStats.expired || 0;
+  const parts = [];
+  if (expiring > 0) parts.push('⚠️ <b>' + expiring + '</b> 条授权 30 天内到期，请及时续期');
+  if (expired > 0) parts.push('<span class="expired-alert">🔴 <b>' + expired + '</b> 条授权已过期</span>');
+  if (parts.length === 0) { el.className = 'alert'; el.innerHTML = ''; return; }
+  el.className = 'alert show';
+  el.innerHTML = parts.join('&nbsp;&nbsp;');
+}
+
+// 客户列表（预填 datalist + 产品 datalist）
+let customerCache = [];
+
+async function loadCustomers() {
+  try {
+    const token = sessionStorage.getItem('issuerToken') || '';
+    const resp = await fetch('/api/v1/customers', { headers: { 'X-Issuer-Token': token } });
+    if (resp.status !== 200) return;
+    const data = await resp.json();
+    if (!data.success) return;
+    customerCache = data.customers || [];
+    document.getElementById('customerList').innerHTML = customerCache
+      .map(c => '<option value="' + escapeHtml(c.customer) + '">').join('');
+    const products = [...new Set(customerCache.map(c => c.lastProduct).filter(Boolean))];
+    document.getElementById('productList').innerHTML = products
+      .map(p => '<option value="' + escapeHtml(p) + '">').join('');
+  } catch (e) { /* 静默 */ }
+}
+
+// 客户输入：匹配已有客户则提示并预填最近签发参数
+function onCustomerInput() {
+  const name = document.getElementById('customer').value.trim();
+  const hint = document.getElementById('customerHint');
+  if (!name) { hint.className = 'hint'; hint.innerHTML = ''; return; }
+  const c = customerCache.find(x => x.customer === name);
+  if (!c) {
+    hint.className = 'hint';
+    hint.innerHTML = '新客户，将新建授权记录';
+    return;
+  }
+  hint.className = 'hint show';
+  hint.innerHTML = '📋 已识别客户：共 ' + c.licenses + ' 条授权（有效 ' + c.activeCount + '，其中 ' + c.expiringCount + ' 条即将到期），已预填最近签发参数：' +
+    escapeHtml(c.lastProduct + ' / ' + c.lastEdition + ' / ' + c.lastNodes + ' 节点');
+  // 仅预填空白字段，避免覆盖用户已输入内容
+  if (!document.getElementById('machineCode').value) document.getElementById('machineCode').value = c.machineCode || '';
+  if (!document.getElementById('product').value || document.getElementById('product').value === 'licen-server') document.getElementById('product').value = c.lastProduct || '';
+  if (!document.getElementById('edition').value) document.getElementById('edition').value = c.lastEdition || '';
+  if (!document.getElementById('maxNodes').value) document.getElementById('maxNodes').value = c.lastNodes || '';
+  if (!document.getElementById('features').value) document.getElementById('features').value = (c.lastFeatures || []).join(',');
 }
 
 function badge(status) {
-  const map = { valid: ['有效','valid'], expired: ['已过期','expired'], revoked: ['已吊销','revoked'] };
+  const map = { valid: ['有效','valid'], expiring: ['即将到期','expiring'], expired: ['已过期','expired'], revoked: ['已吊销','revoked'] };
   const [txt, cls] = map[status] || [status, 'expired'];
   return '<span class="badge ' + cls + '">' + txt + '</span>';
 }
@@ -255,6 +357,11 @@ function renderLicenses() {
   const tbody = document.getElementById('licTable');
   const empty = document.getElementById('licEmpty');
   document.getElementById('licCount').textContent = '共 ' + rows.length + ' 条';
+  document.getElementById('licStats').innerHTML =
+    '🟢 <b>' + licStats.valid + '</b> 有效'
+    + '&nbsp;🟠 <b>' + licStats.expiring + '</b> 即将到期'
+    + '&nbsp;🔴 <b>' + licStats.expired + '</b> 已过期'
+    + '&nbsp;⚫ <b>' + licStats.revoked + '</b> 已吊销';
   if (rows.length === 0) {
     tbody.innerHTML = '';
     empty.style.display = 'block';
@@ -265,10 +372,16 @@ function renderLicenses() {
     const opRevoke = r.status === 'valid'
       ? '<button class="op-btn danger" onclick="revokeLic(\'' + r.licenseId + '\')">吊销</button>'
       : '';
-    const opReissue = (r.status === 'valid' || r.status === 'expired')
+    const opReissue = (r.status === 'valid' || r.status === 'expiring' || r.status === 'expired')
       ? '<button class="op-btn" onclick="reissueLic(\'' + r.licenseId + '\')">重新签发</button>'
       : '';
     const dl = '<button class="op-btn" onclick="downloadLic(\'' + r.licenseId + '\')">下载</button>';
+    const tl = '<button class="op-btn" onclick="showTimeline(\'' + r.licenseId + '\')">时序</button>';
+    // 剩余天数：有效绿色/即将到期橙色/已过期红色
+    let daysHtml = '-';
+    if (r.status === 'valid') daysHtml = '<span style="color:#168a2f">' + r.daysLeft + ' 天</span>';
+    else if (r.status === 'expiring') daysHtml = '<span style="color:#b76e00;font-weight:600">' + r.daysLeft + ' 天</span>';
+    else if (r.status === 'expired') daysHtml = '<span style="color:#d92d20">已过期 ' + Math.abs(r.daysLeft) + ' 天</span>';
     return '<tr>'
       + '<td>' + badge(r.status) + '</td>'
       + '<td class="mono" title="' + escapeHtml(r.licenseId || '') + '">' + escapeHtml(shortId(r.licenseId)) + '</td>'
@@ -278,9 +391,48 @@ function renderLicenses() {
       + '<td>' + escapeHtml((r.features || []).join(',')) + '</td>'
       + '<td>' + fmtTime(r.issuedAt) + '</td>'
       + '<td>' + fmtTime(r.expiresAt) + '</td>'
-      + '<td>' + dl + opReissue + opRevoke + '</td>'
+      + '<td>' + daysHtml + '</td>'
+      + '<td>' + dl + tl + opReissue + opRevoke + '</td>'
       + '</tr>';
   }).join('');
+}
+
+// ---------- 授权时序 ----------
+async function showTimeline(id) {
+  const mask = document.getElementById('tlMask');
+  const body = document.getElementById('tlBody');
+  body.innerHTML = '<div class="empty">加载中...</div>';
+  mask.className = 'modal-mask show';
+  try {
+    const token = sessionStorage.getItem('issuerToken') || '';
+    const resp = await fetch('/api/v1/licenses/' + encodeURIComponent(id) + '/timeline', { headers: { 'X-Issuer-Token': token } });
+    const data = await resp.json();
+    if (!data.success) { body.innerHTML = '<div class="empty">' + escapeHtml(data.message || '查询失败') + '</div>'; return; }
+    const list = data.timeline || [];
+    body.innerHTML = '<div class="tl">' + list.map((item, i) => {
+      const cls = item.status;
+      const reason = item.revoked
+        ? (item.revokeNote ? ' · 原因：' + escapeHtml(item.revokeNote) : ' · 已吊销')
+        : (item.reissuedTo ? ' · 已续签至 ' + escapeHtml(shortId(item.reissuedTo)) : '');
+      const from = item.reissuedFrom ? '（续签自 ' + escapeHtml(shortId(item.reissuedFrom)) + '）' : '（最初签发）';
+      return '<div class="tl-item ' + cls + '">'
+        + '<div class="tl-title">#' + (list.length - i) + ' ' + badge(item.status) + ' ' + escapeHtml(item.licenseId) + '</div>'
+        + '<div class="tl-meta">'
+        + '客户：' + escapeHtml(item.customer || '-') + ' · 产品：' + escapeHtml(item.product || '-') + ' / ' + escapeHtml(item.edition || '-')
+        + '<br>签发：' + fmtTime(item.issuedAt) + ' ' + from
+        + '<br>到期：' + fmtTime(item.expiresAt)
+        + (item.revoked ? '<br>吊销：' + fmtTime(item.revokedAt) : '')
+        + '<br>节点：' + (item.maxNodes || 0) + ' · 功能点：' + escapeHtml((item.features || []).join(','))
+        + reason
+        + '</div></div>';
+    }).join('') + '</div>';
+  } catch (e) {
+    body.innerHTML = '<div class="empty">请求失败: ' + escapeHtml(String(e)) + '</div>';
+  }
+}
+
+function closeTl() {
+  document.getElementById('tlMask').className = 'modal-mask';
 }
 
 function getToken() {

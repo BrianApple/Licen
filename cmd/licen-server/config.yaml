@@ -4,7 +4,8 @@ server:
 licen:
   # 机器码盐（可选，与厂商签发 License 时一致；留空则无盐）
   salt: ""
-  # License 文件路径（客户把厂商签发的 license.json 放到此路径）
+  # License 文件路径：单文件（./license.json，向后兼容）或目录（./licenses/，多产品共存模式：
+  # 目录下每个 <product>.json 对应一个产品的 License，各产品独立激活、独立校验、互不覆盖）
   license-file: ./license.json
   # 公钥文件路径（部署时替换为厂商公钥；不存在则用构建内嵌公钥）
   public-key-file: ./keys/public.pem

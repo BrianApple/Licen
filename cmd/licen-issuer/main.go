@@ -157,6 +157,8 @@ func (s *IssuerServer) handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/issue-text", s.auth(s.handleIssueText)) // 兼容 form 提交
 	// 已签发台账管理
 	mux.HandleFunc("GET /api/v1/licenses", s.auth(s.handleLicenses))
+	mux.HandleFunc("GET /api/v1/licenses/{id}/timeline", s.auth(s.handleTimeline))
+	mux.HandleFunc("GET /api/v1/customers", s.auth(s.handleCustomers))
 	mux.HandleFunc("POST /api/v1/licenses/{id}/revoke", s.auth(s.handleRevoke))
 	mux.HandleFunc("POST /api/v1/licenses/{id}/reissue", s.auth(s.handleReissue))
 	return mux
@@ -264,13 +266,51 @@ func (s *IssuerServer) handleLicenses(w http.ResponseWriter, _ *http.Request) {
 	now := time.Now()
 	type listItem struct {
 		LicenseRecord
-		Status string `json:"status"`
+		Status   string `json:"status"`
+		DaysLeft int    `json:"daysLeft"`
 	}
 	items := make([]listItem, 0, len(recs))
+	stats := map[string]int{"valid": 0, "expiring": 0, "expired": 0, "revoked": 0}
 	for _, r := range recs {
-		items = append(items, listItem{LicenseRecord: r, Status: r.Status(now)})
+		st := r.Status(now)
+		stats[st]++
+		items = append(items, listItem{LicenseRecord: r, Status: st, DaysLeft: r.DaysLeft(now)})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total": len(items), "licenses": items})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"total":   len(items),
+		"licenses": items,
+		"stats":   stats,
+	})
+}
+
+// handleCustomers 客户列表（预填签发表单：选择客户自动带出最近签发参数）
+func (s *IssuerServer) handleCustomers(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":   true,
+		"customers": s.store.Customers(time.Now()),
+	})
+}
+
+// handleTimeline 授权时序：返回该 License 的完整续签链（最初签发 → 每次续签 → 当前）
+func (s *IssuerServer) handleTimeline(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	chain := s.store.Timeline(id)
+	if len(chain) == 0 {
+		writeJSON(w, http.StatusNotFound, map[string]any{"success": false, "message": "License 不存在: " + id})
+		return
+	}
+	now := time.Now()
+	type node struct {
+		LicenseRecord
+		Status   string `json:"status"`
+		DaysLeft int    `json:"daysLeft"`
+	}
+	items := make([]node, 0, len(chain))
+	for _, rec := range chain {
+		items = append(items, node{LicenseRecord: rec, Status: rec.Status(now), DaysLeft: rec.DaysLeft(now)})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "licenseId": id, "timeline": items})
 }
 
 // revokeReq 吊销请求体

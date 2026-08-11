@@ -179,6 +179,28 @@ func (s *Server) handleLicenseStatus(w http.ResponseWriter, _ *http.Request) {
 		body["issuedAt"] = lic.IssuedAt
 		body["expiresAt"] = lic.ExpiresAt
 	}
+	// 多产品模式：列出全部产品授权状态
+	if prods := s.licMgr.Products(); len(prods) > 0 {
+		list := make([]map[string]any, 0, len(prods))
+		for _, p := range prods {
+			item := map[string]any{
+				"product": p.Product,
+				"result":  p.Result.String(),
+				"valid":   p.Result == license.Valid,
+			}
+			if p.License != nil {
+				item["licenseId"] = p.License.LicenseID
+				item["edition"] = p.License.Edition
+				item["customer"] = p.License.Customer
+				item["maxNodes"] = p.License.MaxNodes
+				item["features"] = p.License.Features
+				item["issuedAt"] = p.License.IssuedAt
+				item["expiresAt"] = p.License.ExpiresAt
+			}
+			list = append(list, item)
+		}
+		body["products"] = list
+	}
 	writeJSON(w, http.StatusOK, body)
 }
 
@@ -278,6 +300,27 @@ func (s *Server) handleAdminLicenseStatus(w http.ResponseWriter, _ *http.Request
 		"result":      s.licMgr.Result().String(),
 		"machineCode": s.licMgr.MachineCode(),
 		"license":     s.licMgr.License(),
+	}
+	if prods := s.licMgr.Products(); len(prods) > 0 {
+		list := make([]map[string]any, 0, len(prods))
+		for _, p := range prods {
+			item := map[string]any{
+				"product": p.Product,
+				"result":  p.Result.String(),
+				"valid":   p.Result == license.Valid,
+			}
+			if p.License != nil {
+				item["licenseId"] = p.License.LicenseID
+				item["edition"] = p.License.Edition
+				item["customer"] = p.License.Customer
+				item["maxNodes"] = p.License.MaxNodes
+				item["features"] = p.License.Features
+				item["issuedAt"] = p.License.IssuedAt
+				item["expiresAt"] = p.License.ExpiresAt
+			}
+			list = append(list, item)
+		}
+		body["products"] = list
 	}
 	writeJSON(w, http.StatusOK, body)
 }

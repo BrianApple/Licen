@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/BrianApple/Licen/internal/license"
@@ -58,15 +59,43 @@ func New(st *store.Store, licMgr *license.Manager, nodeSvc *node.Service, adminT
 
 	// Web 管理平台（内嵌单文件页面）
 	s.mux.HandleFunc("GET /admin", s.handleAdminPage)
+	s.mux.HandleFunc("GET /admin/assets/{file}", s.handleAdminAsset)
 
 	return s
 }
 
-// handleAdminPage 返回内置 Web 管理平台页面（零外部依赖，页面内通过 X-Admin-Token 调管理 API）
+// handleAdminPage 返回内置 Web 管理平台页面（Ant Design v5，静态资源走 /admin/assets/）
 func (s *Server) handleAdminPage(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(adminHTML))
+}
+
+// handleAdminAsset 提供内嵌的前端静态资源（react/antd/icons 等 UMD 文件）
+func (s *Server) handleAdminAsset(w http.ResponseWriter, r *http.Request) {
+	file := r.PathValue("file")
+	if file == "" || file == ".." || len(file) > 80 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "message": "文件无效"})
+		return
+	}
+	data, err := assetsFS.ReadFile("assets/" + file)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"success": false, "message": "资源不存在"})
+		return
+	}
+	ct := "application/javascript"
+	switch {
+	case strings.HasSuffix(file, ".css"):
+		ct = "text/css; charset=utf-8"
+	case strings.HasSuffix(file, ".js"):
+		ct = "application/javascript; charset=utf-8"
+	case strings.HasSuffix(file, ".svg"):
+		ct = "image/svg+xml"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }
 
 // Handler 返回 http.Handler

@@ -1,0 +1,18 @@
+server:
+  port: 8090
+
+licen:
+  # 机器码盐（可选，与厂商签发 License 时一致；留空则无盐）
+  salt: ""
+  # License 文件路径（客户把厂商签发的 license.json 放到此路径）
+  license-file: ./license.json
+  # 公钥文件路径（部署时替换为厂商公钥；不存在则用构建内嵌公钥）
+  public-key-file: ./keys/public.pem
+  # 心跳超时（秒）：超过此时长未心跳的节点视为离线并回收名额
+  heartbeat-timeout-seconds: 90
+  # 管理端 API Token（访问 /api/v1/admin/** 需要）
+  admin-token: licen-admin-2026
+  # 客户端心跳 HMAC 签名校验开关
+  hmac-verify-enabled: true
+  # SQLite 数据库文件路径
+  db-path: ./data/licen.db

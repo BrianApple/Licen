@@ -1,0 +1,35 @@
+# Maven
+target/
+*.class
+*.jar
+!licen-tool/target/*.jar
+!licen-server/target/*.jar
+
+# Go 构建产物
+licen-server-bin
+licen-tool-bin
+*.exe
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# 运行时数据（SQLite、License、密钥）
+data/
+*.db
+*.db-*
+license.json
+license-*.json
+keys/private.pem
+keys/public.pem
+
+# 日志
+*.log
+logs/
+
+# 系统
+.DS_Store

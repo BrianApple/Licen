@@ -1,0 +1,17 @@
+server:
+  port: 8092
+
+spring:
+  application:
+    name: licen-example-app
+
+licen:
+  sdk:
+    # 授权服务地址（客户VM上的 licen-server）
+    server-url: http://127.0.0.1:8091
+    # 应用凭证（在授权服务管理端创建）
+    app-key: ai-engine
+    app-secret: licen-demo-secret-2026
+    node-name: example-ai-engine
+    heartbeat-interval-seconds: 5
+    grace-period-seconds: 30

@@ -181,6 +181,7 @@ public class LicenClient {
     }
 
     private void updateStatus(JsonNode json) {
+        LicenseStatus old = status.get();
         LicenseStatus s = new LicenseStatus();
         s.valid = json.path("valid").asBoolean(json.path("success").asBoolean(false));
         s.licenseId = textOrNull(json, "licenseId");
@@ -191,6 +192,9 @@ public class LicenClient {
             List<String> fs = new java.util.ArrayList<>();
             json.get("features").forEach(f -> fs.add(f.asText()));
             s.features = fs;
+        } else if (old != null) {
+            // 响应无 features（如注册/心跳）时保留旧值，避免覆盖清空
+            s.features = old.features;
         }
         s.lastSyncAt = System.currentTimeMillis();
         status.set(s);

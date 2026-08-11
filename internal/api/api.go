@@ -148,9 +148,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleMachineCode(w http.ResponseWriter, _ *http.Request) {
+	hw := s.licMgr.Hardware()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"machineCode": s.licMgr.MachineCode(),
-		"hint":        "请将此机器码发送给厂商用于签发 License",
+		"hardware": map[string]string{
+			"motherboardSerial": hw.MotherboardSerial,
+			"cpuSerial":         hw.CPUSerial,
+			"macAddress":        hw.MacAddress,
+			"diskSerial":        hw.DiskSerial,
+			"systemUUID":        hw.SystemUUID,
+		},
+		"hint": "请将此机器码发送给厂商用于签发 License",
 	})
 }
 

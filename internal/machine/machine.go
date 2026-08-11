@@ -22,12 +22,13 @@ type HardwareInfo struct {
 	CPUSerial         string
 	MacAddress        string
 	DiskSerial        string
+	SystemUUID        string
 	MachineCode       string
 }
 
 func (h HardwareInfo) String() string {
-	return fmt.Sprintf("主板序列号=%s, CPU序列号=%s, 主MAC=%s, 磁盘序列号=%s, 机器码=%s",
-		h.MotherboardSerial, h.CPUSerial, h.MacAddress, h.DiskSerial, h.MachineCode)
+	return fmt.Sprintf("主板序列号=%s, CPU序列号=%s, 主MAC=%s, 磁盘序列号=%s, 系统UUID=%s, 机器码=%s",
+		h.MotherboardSerial, h.CPUSerial, h.MacAddress, h.DiskSerial, h.SystemUUID, h.MachineCode)
 }
 
 // Collect 采集本机硬件信息并计算机器码
@@ -36,6 +37,7 @@ func Collect(salt string) HardwareInfo {
 	cpu := cpuSerial()
 	mac := primaryMac()
 	disk := primaryDiskSerial()
+	uuid := readTrim("/sys/class/dmi/id/product_uuid")
 
 	machineCode := compute(mb, cpu, mac, disk, salt)
 	return HardwareInfo{
@@ -43,6 +45,7 @@ func Collect(salt string) HardwareInfo {
 		CPUSerial:         cpu,
 		MacAddress:        mac,
 		DiskSerial:        disk,
+		SystemUUID:        uuid,
 		MachineCode:       machineCode,
 	}
 }

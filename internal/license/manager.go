@@ -22,14 +22,17 @@ type Manager struct {
 	licenseFile string
 	license     *Model
 	result      ValidationResult
+	hardware    machine.HardwareInfo
 }
 
 // NewManager 创建管理器并加载 License（公钥优先取外部文件 ./keys/public.pem，否则内置）
 func NewManager(salt, licenseFile, embeddedPublicKey string) (*Manager, error) {
+	hw := machine.Collect(salt)
 	m := &Manager{
 		salt:        salt,
 		licenseFile: licenseFile,
-		machineCode: machine.Generate(salt),
+		machineCode: hw.MachineCode,
+		hardware:    hw,
 	}
 
 	// 公钥加载：外部文件优先，其次内置（构建时 -ldflags 注入或默认）
@@ -128,9 +131,12 @@ func (m *Manager) Result() ValidationResult {
 
 // MachineCode 本机机器码
 func (m *Manager) MachineCode() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	return m.machineCode
+}
+
+// Hardware 返回采集到的硬件明细（主板/CPU/MAC/磁盘/UUID，供展示与排查）
+func (m *Manager) Hardware() machine.HardwareInfo {
+	return m.hardware
 }
 
 // MaxNodes 最大并发节点数（License 未加载为 0）

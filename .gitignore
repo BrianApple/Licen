@@ -10,6 +10,7 @@ licen-server-bin
 licen-tool-bin
 *.exe
 dist/
+build/
 
 # C 构建产物
 *.o

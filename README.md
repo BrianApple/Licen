@@ -39,9 +39,9 @@
 
 内置 **Web 管理平台**（`GET /admin`，零依赖单文件），授权状态 / 节点 / 应用 / 审计一站式可视化：
 
-| 管理平台总览（授权状态 + 节点 + 应用 + 审计） |
-|---|
-| ![管理平台](docs/screenshots/06-server-admin-platform.png) |
+| 管理平台总览（授权状态 + 节点 + 应用 + 审计） | 全页视图（长截图） |
+|---|---|
+| ![管理平台](docs/screenshots/06-server-admin-platform.png) | ![全页视图](docs/screenshots/07-server-admin-nodes-full.png) |
 
 | 授权状态（VALID / 节点数 / 功能点） | 节点管理（并发节点在线） |
 |---|---|

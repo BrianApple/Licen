@@ -104,7 +104,36 @@ timestamp = 当前 Unix 毫秒
 { "machineCode": "sha256-hex", "hint": "请将此机器码发送给厂商用于签发 License" }
 ```
 
-### 2.6 管理接口 /api/v1/admin/**（需 X-Admin-Token 请求头）
+### 2.6 激活 POST /api/v1/activate（先部署后激活）
+
+**License 未激活时**：除 health / machine-code / license/status / activate 外，其余接口一律返回 HTTP 403：
+
+```json
+{ "success": false, "code": "LICENSE_NOT_ACTIVATED", "message": "License 未激活..." }
+```
+
+**激活请求**（两种格式，均无需管理 Token）：
+```json
+// 方式一：请求体直接为 license.json 内容
+{ "licenseId": "...", "product": "licen-server", ..., "sign": "..." }
+
+// 方式二：包装格式
+{ "licenseContent": "{ \"licenseId\": \"...\", ... }" }
+```
+
+**成功响应 200**：
+```json
+{ "success": true, "message": "License 激活成功，全部功能已启用",
+  "licenseId": "LIC-XXXX", "product": "licen-server", "edition": "enterprise",
+  "customer": "某公司", "maxNodes": 50, "features": ["server-core"], "expiresAt": "..." }
+```
+
+**失败响应 400**（伪造/篡改/换机器均无法激活）：
+```json
+{ "success": false, "result": "MACHINE_MISMATCH", "message": "License 激活失败：MACHINE_MISMATCH（...）" }
+```
+
+### 2.7 管理接口 /api/v1/admin/**（需 X-Admin-Token 请求头）
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
@@ -121,6 +150,7 @@ timestamp = 当前 Unix 毫秒
 
 | 错误码 | 含义 | SDK 行为 |
 |---|---|---|
+| LICENSE_NOT_ACTIVATED | License 未激活（先部署后激活模式） | 服务端 403，业务接口不可用；上传厂商 License 后自动恢复 |
 | APP_NOT_FOUND | appKey 不存在 | 检查配置，终止注册（持续重试） |
 | APP_AUTH_FAILED | appSecret 错误 | 检查配置，终止注册 |
 | LICENSE_INVALID:<原因> | License 无效（EXPIRED/MACHINE_MISMATCH/INVALID_SIGNATURE） | 进入 DEGRADED，产品降级 |

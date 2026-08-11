@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -35,28 +36,46 @@ func New(st *store.Store, licMgr *license.Manager, nodeSvc *node.Service, adminT
 		mux:        http.NewServeMux(),
 	}
 
-	// 公开接口
+	// 公开接口（license 未激活也可用：健康检查/机器码采集/状态/激活）
 	s.mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/v1/machine-code", s.handleMachineCode)
 	s.mux.HandleFunc("GET /api/v1/license/status", s.handleLicenseStatus)
-	s.mux.HandleFunc("POST /api/v1/nodes/register", s.handleRegister)
-	s.mux.HandleFunc("POST /api/v1/nodes/heartbeat", s.handleHeartbeat)
+	s.mux.HandleFunc("POST /api/v1/activate", s.handleActivate)
 
-	// 管理接口（X-Admin-Token 鉴权）
-	s.mux.HandleFunc("GET /api/v1/admin/license/status", s.admin(s.handleAdminLicenseStatus))
-	s.mux.HandleFunc("POST /api/v1/admin/license/reload", s.admin(s.handleAdminLicenseReload))
-	s.mux.HandleFunc("GET /api/v1/admin/nodes", s.admin(s.handleAdminNodes))
-	s.mux.HandleFunc("DELETE /api/v1/admin/nodes/{id}", s.admin(s.handleAdminRevokeNode))
-	s.mux.HandleFunc("GET /api/v1/admin/apps", s.admin(s.handleAdminListApps))
-	s.mux.HandleFunc("POST /api/v1/admin/apps", s.admin(s.handleAdminCreateApp))
-	s.mux.HandleFunc("DELETE /api/v1/admin/apps/{id}", s.admin(s.handleAdminDeleteApp))
-	s.mux.HandleFunc("GET /api/v1/admin/audits", s.admin(s.handleAdminAudits))
+	// 业务接口（需 license 激活）
+	s.mux.HandleFunc("POST /api/v1/nodes/register", s.requireActive(s.handleRegister))
+	s.mux.HandleFunc("POST /api/v1/nodes/heartbeat", s.requireActive(s.handleHeartbeat))
+
+	// 管理接口（X-Admin-Token 鉴权 + license 激活）
+	s.mux.HandleFunc("GET /api/v1/admin/license/status", s.requireActive(s.admin(s.handleAdminLicenseStatus)))
+	s.mux.HandleFunc("POST /api/v1/admin/license/reload", s.requireActive(s.admin(s.handleAdminLicenseReload)))
+	s.mux.HandleFunc("GET /api/v1/admin/nodes", s.requireActive(s.admin(s.handleAdminNodes)))
+	s.mux.HandleFunc("DELETE /api/v1/admin/nodes/{id}", s.requireActive(s.admin(s.handleAdminRevokeNode)))
+	s.mux.HandleFunc("GET /api/v1/admin/apps", s.requireActive(s.admin(s.handleAdminListApps)))
+	s.mux.HandleFunc("POST /api/v1/admin/apps", s.requireActive(s.admin(s.handleAdminCreateApp)))
+	s.mux.HandleFunc("DELETE /api/v1/admin/apps/{id}", s.requireActive(s.admin(s.handleAdminDeleteApp)))
+	s.mux.HandleFunc("GET /api/v1/admin/audits", s.requireActive(s.admin(s.handleAdminAudits)))
 
 	return s
 }
 
 // Handler 返回 http.Handler
 func (s *Server) Handler() http.Handler { return s.mux }
+
+// requireActive License 激活门控：未激活时业务/管理接口一律拒绝
+func (s *Server) requireActive(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.licMgr.IsValid() {
+			writeJSON(w, http.StatusForbidden, map[string]any{
+				"success": false,
+				"code":    "LICENSE_NOT_ACTIVATED",
+				"message": "License 未激活，仅可使用基础功能（机器码采集/状态查询/激活）。请将机器码发送给厂商获取 License 后调用 POST /api/v1/activate 激活",
+			})
+			return
+		}
+		next(w, r)
+	}
+}
 
 // admin 管理端鉴权包装
 func (s *Server) admin(next http.HandlerFunc) http.HandlerFunc {
@@ -144,6 +163,55 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	result := s.nodeSvc.Heartbeat(req.NodeID, req.AppKey, req.Timestamp, req.Sign)
 	writeJSON(w, http.StatusOK, result)
+}
+
+// ---------- 激活 ----------
+
+type activateReq struct {
+	// LicenseContent 支持两种上传方式：
+	//   1) 请求体直接为 license.json 内容（{"licenseId":...,"sign":...}）
+	//   2) 包装格式：{"licenseContent":"<license.json 原始字符串>"}
+	LicenseContent string `json:"licenseContent"`
+}
+
+// handleActivate 上传 License 激活：验签 + 机器码 + 有效期通过后写入并生效。
+// 不需要管理 Token——伪造风险由 RSA 签名 + 机器码绑定杜绝。
+func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1MB 上限
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "message": "请求体读取失败"})
+		return
+	}
+
+	content := body
+	// 尝试识别包装格式
+	var wrap activateReq
+	if err := json.Unmarshal(body, &wrap); err == nil && wrap.LicenseContent != "" {
+		content = []byte(wrap.LicenseContent)
+	}
+
+	result := s.licMgr.Activate(content)
+	if result != license.Valid {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"success": false,
+			"result":  result.String(),
+			"message": "License 激活失败：" + result.String() + "（请确认 License 由厂商签发且绑定本机机器码）",
+		})
+		return
+	}
+	s.store.AuditLog("LICENSE_ACTIVATE", "result=VALID licenseId="+s.licMgr.License().LicenseID)
+	lic := s.licMgr.License()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":   true,
+		"message":   "License 激活成功，全部功能已启用",
+		"licenseId": lic.LicenseID,
+		"product":   lic.Product,
+		"edition":   lic.Edition,
+		"customer":  lic.Customer,
+		"maxNodes":  lic.MaxNodes,
+		"features":  lic.Features,
+		"expiresAt": lic.ExpiresAt,
+	})
 }
 
 // ---------- 管理接口 ----------

@@ -137,6 +137,11 @@ func Load(path string) (*Model, error) {
 	if err != nil {
 		return nil, err
 	}
+	return LoadBytes(data)
+}
+
+// LoadBytes 从字节内容解析 License（激活接口上传场景）
+func LoadBytes(data []byte) (*Model, error) {
 	var m Model
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, err

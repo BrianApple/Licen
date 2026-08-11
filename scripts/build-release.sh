@@ -78,15 +78,17 @@ build_one() {
 
 build_one ./cmd/licen-server licen-server
 build_one ./cmd/licen-tool   licen-tool
+build_one ./cmd/licen-issuer licen-issuer
 
 # ---------- 拷贝配置模板 ----------
 cp cmd/licen-server/config.yaml "$OUT_DIR/config.yaml.example" 2>/dev/null || true
+cp cmd/licen-issuer/config.yaml "$OUT_DIR/issuer-config.yaml.example" 2>/dev/null || true
 cp docs/protocol.md "$OUT_DIR/PROTOCOL.md" 2>/dev/null || true
 
 # ---------- 校验 ----------
 echo "────────────────────────────────────────────"
 echo "🔍 加固校验:"
-for b in licen-server licen-tool; do
+for b in licen-server licen-tool licen-issuer; do
   f="$OUT_DIR/$b"
   [ -f "$f" ] || { echo "❌ $b 缺失"; exit 1; }
   # 1. 静态链接校验

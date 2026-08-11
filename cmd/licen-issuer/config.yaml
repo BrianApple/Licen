@@ -1,0 +1,9 @@
+# licen-issuer 厂商签发服务配置
+server:
+  port: 8099
+
+issuer:
+  # 厂商私钥文件（licen-tool gen-keypair 生成，务必妥善保管，勿外泄）
+  private-key-file: ./keys/private.pem
+  # 签发 API 鉴权 Token（必须修改！Web 界面签发时会要求输入）
+  admin-token: change-me

@@ -68,6 +68,43 @@ func (m *Manager) Reload() bool {
 	return m.result == Valid
 }
 
+// Activate 通过上传的 License 内容激活：解析 → 验签 → 机器码匹配 → 有效期，
+// 全部通过后写入 license 文件并立即生效。
+// 该接口不依赖管理 Token——安全性由 RSA 签名 + 机器码绑定保证（只有厂商能签发）。
+func (m *Manager) Activate(content []byte) ValidationResult {
+	lic, err := LoadBytes(content)
+	if err != nil {
+		slog.Warn("⚠️ License 激活失败：内容解析错误", "err", err.Error())
+		return Missing
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	result := Validate(lic, m.PublicKey, m.machineCode, time.Now())
+	if result != Valid {
+		slog.Warn("⚠️ License 激活被拒绝", "licenseId", lic.LicenseID, "result", result.String())
+		return result
+	}
+	if err := os.WriteFile(m.licenseFile, content, 0o644); err != nil {
+		slog.Error("❌ License 激活失败：写入文件错误", "err", err.Error())
+		return Missing
+	}
+	m.license = lic
+	m.result = result
+	slog.Info("✅ License 激活成功", "licenseId", lic.LicenseID, "file", m.licenseFile)
+	return result
+}
+
+// ActivateFromFile 从文件路径读取并激活（管理接口 reload 的增强版）
+func (m *Manager) ActivateFromFile(path string) ValidationResult {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		slog.Warn("⚠️ License 文件读取失败", "err", err.Error())
+		return Missing
+	}
+	return m.Activate(data)
+}
+
 // IsValid License 是否有效
 func (m *Manager) IsValid() bool {
 	m.mu.RLock()

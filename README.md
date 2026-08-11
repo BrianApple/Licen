@@ -1,13 +1,62 @@
-# Licen —— 私有化部署产品授权服务
+# 🔑 Licen —— 私有化部署产品授权服务
 
-为交付到客户现场的私有化产品（AI 引擎、应用服务、边缘网关等）提供**统一授权管理**：
+> 为交付到客户现场的私有化软件（AI 引擎、应用服务、边缘网关等）提供**开箱即用的授权管理方案**：
+> **先部署后激活**、硬件绑定、节点并发控制、功能点授权、防篡改防逆向，一条龙搞定。
 
-- 🔒 **硬件绑定**：授权服务仅允许部署在指定物理机/VM（主板/CPU/MAC/磁盘 → SHA-256 机器码）
-- 📊 **节点并发控制**：License 限定最大并发节点数，心跳保活、超时自动回收
-- 🎛️ **功能点管理**：按 License 授权功能点（如 ai-inference、nlp），SDK 一键校验
-- ⏳ **有效期控制**：按时间授权，到期自动失效
-- 🛡️ **防篡改防伪造**：RSA-2048 私钥签名（厂商自留），篡改/伪造即失效
-- 🚫 **防逆向**：Go 静态编译 + 去符号 + garble 混淆（授权平台本体非 Java）
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![SDK](https://img.shields.io/badge/SDK-Java%20%7C%20Go%20%7C%20Python%20%7C%20C-orange)](README.md)
+
+---
+
+## ✨ 项目优势
+
+| 维度 | Licen | 传统自研/商业方案 |
+|---|---|---|
+| **交付体验** | **先部署后激活**：客户先装好系统，机器码发给厂商，一键签发、上传即激活，无需等待 | 一般需现场安装时同步授权，或邮寄加密狗（U 盾），周期长 |
+| **部署形态** | `licen-server` 单二进制 + SQLite，**零外部依赖**（不依赖 MySQL/Redis/Nginx），拷到客户 VM 即跑 | 通常要配套数据库、中间件，实施成本高 |
+| **防拷贝** | License 绑定**主板+CPU+MAC+磁盘**四要素 SHA-256 机器码，整套拷走也跑不起来 | 单纯 License 文件可随意复制 |
+| **防篡改** | RSA-2048 私钥签名，改一个字段即 `INVALID_SIGNATURE` | 无签名或弱校验 |
+| **防逆向** | Go 静态编译 + 去符号 + **garble 混淆**（每次构建结果不同，防版本比对） | 解释型/字节码易反编译 |
+| **并发控制** | License 限定最大并发节点数，心跳保活、超时**自动回收**名额，防僵尸占用 | 无节点级管控 |
+| **多语言 SDK** | Java / Go / Python / C **四语言官方 SDK**，统一协议契约，接入 5 分钟 | 通常只有单一语言 SDK |
+| **运维便利** | 机器码采集、License 热重载、管理 API、审计日志，Web 签发中心 | 手工改配置、重启服务 |
+| **成本** | 纯 Go 开源，无按量计费、无云依赖，可完全离线运行 | 按节点/按年收费的授权网关 |
+
+## 📸 功能截图
+
+### 厂商签发中心（licen-issuer）—— 输入机器码，一键签发
+
+| 签发界面 | 填写客户信息 |
+|---|---|
+| ![签发界面](docs/screenshots/01-issuer-webui.png) | ![填写信息](docs/screenshots/02-issuer-form-filled.png) |
+
+| 签发结果（含 License 全文 + 下载） |
+|---|
+| ![签发结果](docs/screenshots/03-issuer-result.png) |
+
+### 客户侧授权服务（licen-server）—— 激活后全功能
+
+| 授权状态（VALID / 节点数 / 功能点） | 节点管理（并发节点在线） |
+|---|---|
+| ![授权状态](docs/screenshots/04-server-license-status.png) | ![节点管理](docs/screenshots/05-server-admin-nodes.png) |
+
+## 🎯 应用场景
+
+### 1. 私有化软件交付（最典型）
+AI 推理引擎、NLP 平台、数据中台等产品交付到客户内网时，用 Licen 控制"谁能用、用几台、用多久、用哪些功能"。客户不续费 → 到期自动失效，无需上门卸载。
+
+### 2. 边缘网关 / 嵌入式设备
+C SDK 支持**纯 socket 零依赖**模式，可嵌入 ARM 边缘网关等受限环境；每台设备一个 License，绑定硬件防刷机盗用。
+
+### 3. SaaS 转私有化
+把 SaaS 产品打包交付给大客户私有化部署时，用 Licen 做**订阅管理**：按年授权、按并发节点数计费、按功能点区分标准版/旗舰版。
+
+### 4. 项目型软件（集成商/代理）
+集成商代理多套软件时，用 Licen 统一管理所有客户的授权：哪家客户、几个节点、何时到期，Web 签发中心一目了然，不用记文件、查邮件。
+
+### 5. 试用版 / PoC 引流
+签发 30 天试用 License 给潜在客户，到期自动停；客户体验满意再买正式版，厂商远程签发续期即可（`/api/v1/activate` 热更新）。
 
 ## 架构
 
@@ -132,13 +181,7 @@ curl -X POST http://<厂商机>:8099/api/v1/issue \
 SKIP_GARBLE=1 ./scripts/build-release.sh  # 仅静态+去符号，跳过混淆（构建更快）
 ```
 
-产物输出到 `dist/<version>/<os>-<arch>/`，包含：
-
-- `licen-server` / `licen-tool`：静态链接二进制，**无符号表**，函数名/字符串全部混淆（garble `-literals -tiny -seed=random`，每次构建结果不同，防版本比对）
-- `config.yaml.example`：配置模板
-- `PROTOCOL.md`：协议契约
-
-构建后脚本自动校验「静态链接」和「符号剥离」两项加固指标。
+产物输出到 `dist/<version>/<os>-<arch>/`，包含 `licen-server` / `licen-tool` / `licen-issuer` 三个二进制（均无符号表、函数名/字符串全部混淆，garble `-literals -tiny -seed=random` 每次构建结果不同），外加配置模板与协议文档。构建后脚本自动校验「静态链接」和「符号剥离」两项加固指标。
 
 > 前置条件：Go ≥ 1.26（garble 最新版依赖）、garble（缺失时脚本自动安装）。
 
@@ -182,7 +225,7 @@ internal/api/          REST API（激活门控）
 licen-sdk/             Java 客户端 SDK（Spring Boot Starter）
 licen-examples/        接入示例
 scripts/               加固构建脚本（build-release.sh）
-docs/                  设计文档 + 协议契约 + 演示密钥
+docs/                  设计文档 + 协议契约 + 演示密钥 + 截图
 ```
 
 ## 安全设计

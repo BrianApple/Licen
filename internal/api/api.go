@@ -64,11 +64,20 @@ func New(st *store.Store, licMgr *license.Manager, nodeSvc *node.Service, adminT
 	return s
 }
 
-// handleAdminPage 返回内置 Web 管理平台页面（Ant Design v5，静态资源走 /admin/assets/）
+// handleAdminPage 返回内置 Web 管理平台页面（Vue 3 + Ant Design Vue，静态资源走 /admin/assets/）
 func (s *Server) handleAdminPage(w http.ResponseWriter, _ *http.Request) {
+	page := adminHTML
+	if tpl, err := assetsFS.ReadFile("root.template.html"); err == nil {
+		// 将模板转义为 JS 单引号字符串后注入（模板含换行/引号，需转义）
+		jsTpl := strings.ReplaceAll(string(tpl), `\`, `\\`)
+		jsTpl = strings.ReplaceAll(jsTpl, `'`, `\'`)
+		jsTpl = strings.ReplaceAll(jsTpl, "\r", "")
+		jsTpl = strings.ReplaceAll(jsTpl, "\n", `\n`)
+		page = strings.ReplaceAll(page, "__ROOT_TEMPLATE__", "'"+jsTpl+"'")
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(adminHTML))
+	_, _ = w.Write([]byte(page))
 }
 
 // handleAdminAsset 提供内嵌的前端静态资源（react/antd/icons 等 UMD 文件）

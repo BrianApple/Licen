@@ -1,0 +1,127 @@
+<!-- 顶部 -->
+  <div class="app-header">
+    <span class="logo"><SafetyCertificateOutlined /></span>
+    <h1>Licen 授权管理平台</h1>
+    <span class="sub">客户侧授权服务 · 状态 / 节点 / 应用 / 审计 一站式管理</span>
+    <div class="spacer"></div>
+    <AButton :loading="loading" @click="loadAll"><template #icon><SyncOutlined /></template>刷新</AButton>
+  </div>
+
+  <div class="content">
+    <!-- Token 栏 -->
+    <div class="token-bar">
+      <LockOutlined style="font-size:16px;color:#1677ff" />
+      <span style="font-weight:600">管理 Token：</span>
+      <AInputPassword v-model:value="token" placeholder="输入 X-Admin-Token" style="width:260px" @pressEnter="saveToken" />
+      <AButton type="primary" @click="saveToken">保存并加载</AButton>
+      <span class="tip" v-if="tokenSaved">✅ Token 已保存（存于本机浏览器）</span>
+      <span class="tip" v-else>Token 仅存于本机 localStorage，不随请求之外的任何地方传输</span>
+    </div>
+
+    <!-- 状态统计卡片 -->
+    <ARow :gutter="[12,12]" style="margin-bottom:16px">
+      <ACol :xs="12" :sm="12" :md="6"><ACard size="small">
+        <AStatistic title="授权状态">
+          <template #valueRender>
+            <ATag v-if="lic && valid" color="success" style="font-size:14px;padding:3px 14px;border-radius:20px"><CheckCircleFilled /> VALID</ATag>
+            <ATag v-else color="error" style="font-size:14px;padding:3px 14px;border-radius:20px"><CloseCircleFilled /> {{ resultText }}</ATag>
+          </template>
+        </AStatistic>
+      </ACard></ACol>
+      <ACol :xs="12" :sm="12" :md="6"><ACard size="small">
+        <AStatistic title="并发节点" :value="lic ? lic.maxNodes : 0" suffix="个" />
+      </ACard></ACol>
+      <ACol :xs="12" :sm="12" :md="6"><ACard size="small">
+        <AStatistic title="客户" :value="lic ? lic.customer : '-'" :value-style="{fontSize:'16px'}" />
+      </ACard></ACol>
+      <ACol :xs="12" :sm="12" :md="6"><ACard size="small">
+        <AStatistic title="在线节点" :value="onlineNodes" :suffix="'/' + (lic ? lic.maxNodes : 0)" />
+      </ACard></ACol>
+    </ARow>
+
+    <!-- License 详情 -->
+    <ACard class="section-card">
+      <template #title><span><DashboardOutlined style="margin-right:8px;color:#1677ff" />授权状态</span></template>
+      <template #extra><AButton size="small" @click="reloadLicense"><template #icon><ReloadOutlined /></template>热重载 License</AButton></template>
+      <ADescriptions v-if="lic" size="small" bordered :column="{ xs:1, sm:2, md:3 }">
+        <ADescriptionsItem label="License ID"><span class="mono">{{ lic.licenseId }}</span></ADescriptionsItem>
+        <ADescriptionsItem label="产品 / 版本">{{ lic.product }} / {{ lic.edition }}</ADescriptionsItem>
+        <ADescriptionsItem label="机器码"><ATooltip :title="lic.machineCode"><span class="mono">{{ shortMachine }}</span></ATooltip></ADescriptionsItem>
+        <ADescriptionsItem label="功能点">
+          <ATag v-for="f in lic.features" :key="f" color="blue" style="margin:2px">{{ f }}</ATag>
+          <ATag v-if="!lic.features || lic.features.length===0">全部</ATag>
+        </ADescriptionsItem>
+        <ADescriptionsItem label="签发时间">{{ fmtTime(lic.issuedAt) }}</ADescriptionsItem>
+        <ADescriptionsItem label="到期时间"><span :style="{color: expired ? '#cf1322' : 'inherit', fontWeight:600}">{{ fmtTime(lic.expiresAt) }}</span></ADescriptionsItem>
+      </ADescriptions>
+      <AEmpty v-else description="License 未激活" />
+    </ACard>
+
+    <!-- 节点表格 -->
+    <ACard class="section-card">
+      <template #title><span><CloudServerOutlined style="margin-right:8px;color:#1677ff" />节点管理（并发控制）</span></template>
+      <ATable :data-source="nodes" :columns="nodeColumns" :loading="loading" row-key="id" size="small" :pagination="{ pageSize:8, showTotal:(t)=>'共 '+t+' 个节点' }" :scroll="{x:1100}">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'status'">
+            <ABadge v-if="record.status === 'ONLINE'" status="success" text="在线" />
+            <ABadge v-else status="default" text="离线" />
+          </template>
+          <template v-else-if="column.key === 'nodeName'">
+            <NodeIndexOutlined style="margin-right:6px;color:#1677ff" />{{ record.nodeName || '-' }}
+          </template>
+          <template v-else-if="column.key === 'op'">
+            <APopconfirm title="确认吊销该节点？" @confirm="revokeNode(record.id)">
+              <AButton type="link" danger size="small"><template #icon><DeleteOutlined /></template>吊销</AButton>
+            </APopconfirm>
+          </template>
+        </template>
+      </ATable>
+    </ACard>
+
+    <!-- 应用表格 -->
+    <ACard class="section-card">
+      <template #title><span><ApiOutlined style="margin-right:8px;color:#1677ff" />应用管理（AppKey/Secret）</span></template>
+      <template #extra><AButton type="primary" size="small" @click="openCreate"><template #icon><PlusOutlined /></template>新建应用</AButton></template>
+      <ATable :data-source="apps" :columns="appColumns" :loading="loading" row-key="id" size="small" :pagination="{ pageSize:6, showTotal:(t)=>'共 '+t+' 个应用' }" :scroll="{x:1000}">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'name'"><AppstoreOutlined style="margin-right:6px;color:#1677ff" />{{ record.name || '-' }}</template>
+          <template v-else-if="column.key === 'enabled'"><ATag :color="record.enabled ? 'success' : 'warning'">{{ record.enabled ? '启用' : '停用' }}</ATag></template>
+          <template v-else-if="column.key === 'op'">
+            <APopconfirm title="确认删除该应用？" @confirm="deleteApp(record.id)">
+              <AButton type="link" danger size="small"><template #icon><DeleteOutlined /></template>删除</AButton>
+            </APopconfirm>
+          </template>
+        </template>
+      </ATable>
+    </ACard>
+
+    <!-- 审计日志 -->
+    <ACard class="section-card">
+      <template #title><span><HistoryOutlined style="margin-right:8px;color:#1677ff" />审计日志</span></template>
+      <ATable :data-source="audits" :columns="auditColumns" :loading="loading" row-key="id" size="small" :pagination="{ pageSize:8, showTotal:(t)=>'共 '+t+' 条' }" :scroll="{x:800}">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'action'"><ATag color="geekblue">{{ record.action }}</ATag></template>
+        </template>
+      </ATable>
+    </ACard>
+  </div>
+
+  <!-- 新建应用 Modal -->
+  <AModal v-model:open="createOpen" title="新建应用" :footer="null" destroy-on-close>
+    <AForm :model="appForm" layout="vertical" @finish="createApp">
+      <AFormItem label="应用名称" name="name" :rules="[{required:true, message:'请输入应用名称'}]">
+        <AInput v-model:value="appForm.name" placeholder="如：AI推理节点集群" />
+      </AFormItem>
+      <AFormItem label="产品标识" name="product"><AInput v-model:value="appForm.product" placeholder="licen-server" /></AFormItem>
+      <AFormItem label="AppKey" name="appKey" :rules="[{required:true, message:'请输入 AppKey'}]">
+        <AInput v-model:value="appForm.appKey" placeholder="唯一标识，如 licen-server-app" />
+      </AFormItem>
+      <AFormItem label="AppSecret" name="appSecret"><AInputPassword v-model:value="appForm.appSecret" placeholder="留空自动生成" /></AFormItem>
+      <AFormItem>
+        <ASpace>
+          <AButton type="primary" html-type="submit">创建</AButton>
+          <AButton @click="createOpen=false">取消</AButton>
+        </ASpace>
+      </AFormItem>
+    </AForm>
+  </AModal>

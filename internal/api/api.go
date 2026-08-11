@@ -56,7 +56,17 @@ func New(st *store.Store, licMgr *license.Manager, nodeSvc *node.Service, adminT
 	s.mux.HandleFunc("DELETE /api/v1/admin/apps/{id}", s.requireActive(s.admin(s.handleAdminDeleteApp)))
 	s.mux.HandleFunc("GET /api/v1/admin/audits", s.requireActive(s.admin(s.handleAdminAudits)))
 
+	// Web 管理平台（内嵌单文件页面）
+	s.mux.HandleFunc("GET /admin", s.handleAdminPage)
+
 	return s
+}
+
+// handleAdminPage 返回内置 Web 管理平台页面（零外部依赖，页面内通过 X-Admin-Token 调管理 API）
+func (s *Server) handleAdminPage(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(adminHTML))
 }
 
 // Handler 返回 http.Handler

@@ -37,6 +37,12 @@
 
 ### 客户侧授权服务（licen-server）—— 激活后全功能
 
+内置 **Web 管理平台**（`GET /admin`，零依赖单文件），授权状态 / 节点 / 应用 / 审计一站式可视化：
+
+| 管理平台总览（授权状态 + 节点 + 应用 + 审计） |
+|---|
+| ![管理平台](docs/screenshots/06-server-admin-platform.png) |
+
 | 授权状态（VALID / 节点数 / 功能点） | 节点管理（并发节点在线） |
 |---|---|
 | ![授权状态](docs/screenshots/04-server-license-status.png) | ![节点管理](docs/screenshots/05-server-admin-nodes.png) |
@@ -194,10 +200,12 @@ SKIP_GARBLE=1 ./scripts/build-release.sh  # 仅静态+去符号，跳过混淆�
 5. 厂商签发（CLI 或 licen-issuer）→ 客户上传激活：
    `curl -X POST http://<host>:8090/api/v1/activate -d @license.json -H "Content-Type: application/json"`
    → 返回 `"success": true` 即全部功能启用
-6. 管理端 API 需请求头 `X-Admin-Token`：
-   - `GET /api/v1/admin/nodes` 节点列表
-   - `POST /api/v1/admin/apps` 创建应用（appKey/appSecret 给产品 SDK 用）
-   - `POST /api/v1/admin/license/reload` 热加载新 License
+6. 管理端（二选一）：
+   - **Web 管理平台**：浏览器打开 `http://<host>:8090/admin`，输入 `admin-token` 即可视化查看/操作（授权状态、License 热重载、节点管理、Apps、审计日志）
+   - **REST API**（需请求头 `X-Admin-Token`）：
+     - `GET /api/v1/admin/nodes` 节点列表
+     - `POST /api/v1/admin/apps` 创建应用（appKey/appSecret 给产品 SDK 用）
+     - `POST /api/v1/admin/license/reload` 热加载新 License
 
 ## 产品接入（SDK）
 

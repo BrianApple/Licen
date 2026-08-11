@@ -73,9 +73,9 @@ curl http://<host>:8090/api/v1/license/status
 | 语言 | 状态 | 说明 |
 |---|---|---|
 | Java | ✅ 可用 | `licen-sdk/`，Spring Boot Starter，配置 `licen.sdk.*` 即接入 |
-| Python | 📋 规划 | 零依赖 |
-| Go | 📋 规划 | 零依赖 |
-| C | 📋 规划 | libcurl + 纯 socket 双模式 |
+| Go | ✅ 可用 | `licen-sdk-go/`，零依赖，`go get` 即用 |
+| Python | ✅ 可用 | `licen-sdk-python/`，零依赖，`pip install` |
+| C | ✅ 可用 | `licen-sdk-c/`，libcurl + 纯 socket 双模式，适配嵌入式 |
 
 协议契约见 `docs/protocol.md`（唯一事实来源）。
 

@@ -241,8 +241,7 @@ func (s *Store) TouchHeartbeat(nodeID string) error {
 
 // TouchHeartbeatAt 将节点心跳时间置为指定时间（强制下线时置 epoch 立即回收名额）
 func (s *Store) TouchHeartbeatAt(nodeID string, at time.Time) error {
-	_, err := s.db.Exec(`UPDATE licen_node SET status='ONLINE', last_heartbeat_at=? WHERE node_id=?`,
-		at, nodeID)
+	_, err := s.db.Exec(`UPDATE licen_node SET last_heartbeat_at=? WHERE node_id=?`, at, nodeID)
 	return err
 }
 

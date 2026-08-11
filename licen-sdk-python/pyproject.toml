@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "licen-sdk"
+version = "1.0.0"
+description = "Licen 授权客户端 SDK：注册/心跳/授权能力校验（零第三方依赖）"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-3.0" }
+authors = [{ name = "BrianApple" }]
+keywords = ["license", "授权", "licen"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+[tool.setuptools]
+packages = ["licen_sdk"]

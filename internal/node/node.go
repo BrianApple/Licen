@@ -160,6 +160,12 @@ func (s *Service) ListNodes(limit int) ([]store.Node, error) {
 	return s.store.ListNodes(limit)
 }
 
+// OnlineCount 当前在线节点数
+func (s *Service) OnlineCount() int {
+	n, _ := s.store.CountOnline(time.Now().Add(-time.Duration(s.timeoutSec) * time.Second))
+	return int(n)
+}
+
 // RevokeNode 强制下线（释放名额）
 func (s *Service) RevokeNode(id int64) bool {
 	node, err := s.store.FindNodeByID(id)

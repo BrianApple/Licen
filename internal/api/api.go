@@ -92,6 +92,7 @@ func (s *Server) handleLicenseStatus(w http.ResponseWriter, _ *http.Request) {
 		"valid":       s.licMgr.IsValid(),
 		"result":      s.licMgr.Result().String(),
 		"machineCode": s.licMgr.MachineCode(),
+		"onlineNodes": s.nodeSvc.OnlineCount(),
 	}
 	if lic := s.licMgr.License(); lic != nil {
 		body["licenseId"] = lic.LicenseID

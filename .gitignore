@@ -10,6 +10,11 @@ licen-server-bin
 licen-tool-bin
 *.exe
 
+# C 构建产物
+*.o
+*.a
+licen-demo
+
 # IDE
 .idea/
 *.iml

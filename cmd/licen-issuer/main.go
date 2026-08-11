@@ -14,6 +14,7 @@
 //	issuer:
 //	  private-key-file: ./keys/private.pem   # 厂商私钥（必填，勿外泄）
 //	  admin-token:       change-me           # 签发 API 鉴权 Token（必填）
+//	  db-path:           ./data/licenses.json # 已签发台账（可选，默认 data/licenses.json）
 package main
 
 import (
@@ -47,6 +48,7 @@ type Config struct {
 	Issuer struct {
 		PrivateKeyFile string `yaml:"private-key-file"`
 		AdminToken     string `yaml:"admin-token"`
+		DBPath         string `yaml:"db-path"`
 	} `yaml:"issuer"`
 }
 
@@ -62,6 +64,9 @@ func loadConfig(path string) (*Config, error) {
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8099
 	}
+	if cfg.Issuer.DBPath == "" {
+		cfg.Issuer.DBPath = "data/licenses.json"
+	}
 	return &cfg, nil
 }
 
@@ -70,10 +75,11 @@ func loadConfig(path string) (*Config, error) {
 type IssuerServer struct {
 	priv       *rsa.PrivateKey
 	adminToken string
+	store      *Store
 }
 
-func NewIssuer(priv *rsa.PrivateKey, adminToken string) *IssuerServer {
-	return &IssuerServer{priv: priv, adminToken: adminToken}
+func NewIssuer(priv *rsa.PrivateKey, adminToken string, store *Store) *IssuerServer {
+	return &IssuerServer{priv: priv, adminToken: adminToken, store: store}
 }
 
 // ---------- 签发请求/响应 ----------
@@ -149,6 +155,10 @@ func (s *IssuerServer) handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("POST /api/v1/issue", s.auth(s.handleIssue))
 	mux.HandleFunc("POST /api/v1/issue-text", s.auth(s.handleIssueText)) // 兼容 form 提交
+	// 已签发台账管理
+	mux.HandleFunc("GET /api/v1/licenses", s.auth(s.handleLicenses))
+	mux.HandleFunc("POST /api/v1/licenses/{id}/revoke", s.auth(s.handleRevoke))
+	mux.HandleFunc("POST /api/v1/licenses/{id}/reissue", s.auth(s.handleReissue))
 	return mux
 }
 
@@ -221,12 +231,140 @@ func (s *IssuerServer) doIssue(w http.ResponseWriter, req issueReq) {
 		writeJSON(w, http.StatusInternalServerError, issueResp{Success: false, Message: "License 序列化失败"})
 		return
 	}
+	// 写入已签发台账
+	expiresAt, _ := time.Parse(time.RFC3339Nano, m.ExpiresAt)
+	rec := LicenseRecord{
+		LicenseID:   m.LicenseID,
+		Product:     m.Product,
+		Edition:     m.Edition,
+		Customer:    m.Customer,
+		MachineCode: m.MachineCode,
+		MaxNodes:    m.MaxNodes,
+		Features:    m.Features,
+		IssuedAt:    time.Now(),
+		ExpiresAt:   expiresAt,
+	}
+	if err := s.store.Add(rec); err != nil {
+		slog.Warn("⚠️ License 已签发但台账写入失败", "licenseId", m.LicenseID, "err", err)
+	}
 	slog.Info("🔑 License 已签发", "licenseId", m.LicenseID, "product", m.Product, "customer", m.Customer)
 	writeJSON(w, http.StatusOK, issueResp{
 		Success:     true,
 		Message:     "License 签发成功",
 		License:     m,
 		LicenseJSON: string(jsonBytes),
+	})
+}
+
+// ---------- 台账管理 API ----------
+
+// handleLicenses 已签发 License 列表（新→旧，含派生状态）
+func (s *IssuerServer) handleLicenses(w http.ResponseWriter, _ *http.Request) {
+	recs := s.store.All()
+	now := time.Now()
+	type listItem struct {
+		LicenseRecord
+		Status string `json:"status"`
+	}
+	items := make([]listItem, 0, len(recs))
+	for _, r := range recs {
+		items = append(items, listItem{LicenseRecord: r, Status: r.Status(now)})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total": len(items), "licenses": items})
+}
+
+// revokeReq 吊销请求体
+type revokeReq struct {
+	Note string `json:"note"` // 吊销原因（可选）
+}
+
+// handleRevoke 吊销 License（标记作废；客户侧已激活的需用重新签发的新 License 覆盖）
+func (s *IssuerServer) handleRevoke(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	rec, ok := s.store.Get(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"success": false, "message": "License 不存在: " + id})
+		return
+	}
+	var req revokeReq
+	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req)
+	rec.Revoked = true
+	now := time.Now()
+	rec.RevokedAt = &now
+	rec.RevokeNote = req.Note
+	if err := s.store.Update(rec); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "message": "吊销失败: " + err.Error()})
+		return
+	}
+	slog.Info("🚫 License 已吊销", "licenseId", id, "note", req.Note)
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "License 已吊销", "license": rec})
+}
+
+// handleReissue 重新签发：用原 License 参数生成新 License（新 ID），旧记录标记吊销并关联
+func (s *IssuerServer) handleReissue(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	old, ok := s.store.Get(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"success": false, "message": "License 不存在: " + id})
+		return
+	}
+	// 用原参数重新签发（续期：从当前时间重新计算有效期）
+	req := issueReq{
+		MachineCode: old.MachineCode,
+		Product:     old.Product,
+		Edition:     old.Edition,
+		MaxNodes:    old.MaxNodes,
+		Features:    old.Features,
+		Customer:    old.Customer,
+	}
+	// 有效期：原时长（原签发到原到期），重新从今天起算
+	dur := old.ExpiresAt.Sub(old.IssuedAt)
+	if dur <= 0 {
+		dur = 365 * 24 * time.Hour
+	}
+	req.Days = int(dur.Hours() / 24)
+	if req.Days <= 0 {
+		req.Days = 365
+	}
+	m, err := s.issue(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "message": "重新签发失败: " + err.Error()})
+		return
+	}
+	// 旧记录：标记吊销 + 关联新 ID
+	now := time.Now()
+	old.Revoked = true
+	old.RevokedAt = &now
+	old.RevokeNote = "重新签发为 " + m.LicenseID
+	old.ReissuedTo = m.LicenseID
+	if err := s.store.Update(old); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "message": "旧记录更新失败: " + err.Error()})
+		return
+	}
+	// 新记录：关联旧 ID
+	expiresAt, _ := time.Parse(time.RFC3339Nano, m.ExpiresAt)
+	rec := LicenseRecord{
+		LicenseID:    m.LicenseID,
+		Product:      m.Product,
+		Edition:      m.Edition,
+		Customer:     m.Customer,
+		MachineCode:  m.MachineCode,
+		MaxNodes:     m.MaxNodes,
+		Features:     m.Features,
+		IssuedAt:     now,
+		ExpiresAt:    expiresAt,
+		ReissuedFrom: old.LicenseID,
+	}
+	if err := s.store.Add(rec); err != nil {
+		slog.Warn("⚠️ 重新签发成功但台账写入失败", "licenseId", m.LicenseID, "err", err)
+	}
+	slog.Info("🔁 License 重新签发", "from", old.LicenseID, "to", m.LicenseID, "customer", m.Customer)
+	jsonBytes, _ := json.MarshalIndent(m, "", "  ")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":     true,
+		"message":     "重新签发成功",
+		"license":     m,
+		"licenseJson": string(jsonBytes),
 	})
 }
 
@@ -281,8 +419,14 @@ func main() {
 		slog.Error("私钥加载失败", "err", err)
 		os.Exit(1)
 	}
+	store, err := NewStore(cfg.Issuer.DBPath)
+	if err != nil {
+		slog.Error("台账初始化失败", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("📒 已签发台账", "path", cfg.Issuer.DBPath, "records", len(store.All()))
 
-	issuer := NewIssuer(priv, cfg.Issuer.AdminToken)
+	issuer := NewIssuer(priv, cfg.Issuer.AdminToken, store)
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler: issuer.handler(),

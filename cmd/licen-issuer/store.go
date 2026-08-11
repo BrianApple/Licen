@@ -1,0 +1,133 @@
+// 台账存储：记录已签发的 License（签发管理/审计）。
+// 持久化到 data/licenses.json（JSON 数组，追加式），进程重启不丢。
+// 线程安全：sync.Mutex 保护读写；写盘用原子替换（临时文件+rename）防损坏。
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"sync"
+	"time"
+)
+
+// LicenseRecord 一条已签发 License 的台账记录
+type LicenseRecord struct {
+	LicenseID   string    `json:"licenseId"`
+	Product     string    `json:"product"`
+	Edition     string    `json:"edition"`
+	Customer    string    `json:"customer"`
+	MachineCode string    `json:"machineCode"`
+	MaxNodes    int       `json:"maxNodes"`
+	Features    []string  `json:"features"`
+	IssuedAt    time.Time `json:"issuedAt"`
+	ExpiresAt   time.Time `json:"expiresAt"`
+	Revoked     bool      `json:"revoked"`
+	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
+	RevokeNote  string    `json:"revokeNote,omitempty"`
+	// ReissuedTo 重新签发后的新 LicenseID（吊销作废后替换）
+	ReissuedTo string `json:"reissuedTo,omitempty"`
+	// ReissuedFrom 本 License 由哪个旧 License 重新签发而来
+	ReissuedFrom string `json:"reissuedFrom,omitempty"`
+}
+
+// Status 派生状态：有效 / 已过期 / 已吊销
+func (r LicenseRecord) Status(now time.Time) string {
+	if r.Revoked {
+		return "revoked"
+	}
+	if now.After(r.ExpiresAt) {
+		return "expired"
+	}
+	return "valid"
+}
+
+// Store License 台账存储
+type Store struct {
+	mu   sync.Mutex
+	path string
+	recs []LicenseRecord
+}
+
+// NewStore 加载或初始化台账（目录不存在则创建）
+func NewStore(path string) (*Store, error) {
+	s := &Store{path: path}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("创建台账目录失败: %w", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			s.recs = []LicenseRecord{}
+			return s, nil
+		}
+		return nil, fmt.Errorf("读取台账失败: %w", err)
+	}
+	if len(data) == 0 {
+		s.recs = []LicenseRecord{}
+		return s, nil
+	}
+	if err := json.Unmarshal(data, &s.recs); err != nil {
+		return nil, fmt.Errorf("台账解析失败（%s）: %w", path, err)
+	}
+	return s, nil
+}
+
+// Add 追加一条签发记录并持久化
+func (s *Store) Add(rec LicenseRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.recs = append(s.recs, rec)
+	return s.save()
+}
+
+// All 返回全部记录（新→旧）
+func (s *Store) All() []LicenseRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]LicenseRecord, len(s.recs))
+	copy(out, s.recs)
+	sort.Slice(out, func(i, j int) bool { return out[i].IssuedAt.After(out[j].IssuedAt) })
+	return out
+}
+
+// Get 按 LicenseID 查记录
+func (s *Store) Get(licenseID string) (LicenseRecord, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.recs {
+		if r.LicenseID == licenseID {
+			return r, true
+		}
+	}
+	return LicenseRecord{}, false
+}
+
+// Update 更新一条记录（吊销/重签），持久化
+func (s *Store) Update(rec LicenseRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.recs {
+		if s.recs[i].LicenseID == rec.LicenseID {
+			s.recs[i] = rec
+			return s.save()
+		}
+	}
+	return errors.New("记录不存在: " + rec.LicenseID)
+}
+
+// save 原子写盘（临时文件 + rename，防止写一半崩溃损坏台账）
+func (s *Store) save() error {
+	data, err := json.MarshalIndent(s.recs, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.path)
+}

@@ -8,6 +8,10 @@ target/
 # Go 构建产物
 licen-server-bin
 licen-tool-bin
+licen-issuer-bin
+/licen-server
+/licen-tool
+/licen-issuer
 *.exe
 dist/
 build/

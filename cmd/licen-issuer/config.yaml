@@ -7,3 +7,5 @@ issuer:
   private-key-file: ./keys/private.pem
   # 签发 API 鉴权 Token（必须修改！Web 界面签发时会要求输入）
   admin-token: change-me
+  # 已签发台账存储（记录每次签发，Web 台账页展示；默认 data/licenses.json）
+  db-path: ./data/licenses.json

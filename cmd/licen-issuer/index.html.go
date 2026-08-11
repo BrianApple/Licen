@@ -11,7 +11,7 @@ const indexHTML = `<!DOCTYPE html>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f0f2f5; color: #1f2329; }
-  .wrap { max-width: 860px; margin: 40px auto; padding: 0 20px; }
+  .wrap { max-width: 1100px; margin: 40px auto; padding: 0 20px; }
   .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
   .logo { width: 44px; height: 44px; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #7c3aed); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 22px; font-weight: 700; }
   .header h1 { font-size: 22px; }
@@ -40,6 +40,23 @@ const indexHTML = `<!DOCTYPE html>
   .dl { display: inline-block; margin-top: 12px; padding: 8px 20px; background: #168a2f; color: #fff; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 600; }
   .tip { font-size: 12px; color: #8a919f; margin-top: 16px; line-height: 1.8; }
   .tip code { background: #f1f2f4; padding: 2px 6px; border-radius: 4px; }
+  /* 台账表格 */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px 12px; background: #f8f9fb; color: #555; font-weight: 600; border-bottom: 2px solid #e5e7eb; white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f0f1f4; vertical-align: middle; }
+  tr:hover td { background: #fafbfd; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge.valid { background: #e6f7ec; color: #168a2f; }
+  .badge.expired { background: #fef3e6; color: #b76e00; }
+  .badge.revoked { background: #fdeeee; color: #d92d20; }
+  .mono { font-family: "SF Mono", Consolas, monospace; font-size: 12px; color: #555; }
+  .op-btn { padding: 4px 12px; border: 1px solid #d5d9e0; border-radius: 6px; background: #fff; font-size: 12px; cursor: pointer; margin-right: 6px; }
+  .op-btn:hover { border-color: #2563eb; color: #2563eb; }
+  .op-btn.danger:hover { border-color: #d92d20; color: #d92d20; }
+  .empty { text-align: center; color: #8a919f; padding: 30px 0; font-size: 13px; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .toolbar input { padding: 7px 12px; border: 1px solid #d5d9e0; border-radius: 8px; font-size: 13px; outline: none; width: 240px; }
+  .toolbar .count { font-size: 13px; color: #8a919f; }
 </style>
 </head>
 <body>
@@ -96,6 +113,39 @@ const indexHTML = `<!DOCTYPE html>
   </div>
 
   <div class="result" id="result"></div>
+
+  <div class="card">
+    <h2>📒 已签发授权台账</h2>
+    <div class="toolbar">
+      <input id="searchBox" placeholder="🔍 搜索客户 / 产品 / License ID" oninput="renderLicenses()">
+      <span class="count" id="licCount"></span>
+    </div>
+    <div id="licTableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>状态</th>
+            <th>License ID</th>
+            <th>客户</th>
+            <th>产品 / 版本</th>
+            <th>节点</th>
+            <th>功能点</th>
+            <th>签发时间</th>
+            <th>到期时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="licTable"></tbody>
+      </table>
+      <div class="empty" id="licEmpty" style="display:none">暂无签发记录</div>
+    </div>
+    <p class="tip">
+      💡 状态说明：<span class="badge valid">有效</span> 正常授权
+      · <span class="badge expired">已过期</span> 超过到期时间
+      · <span class="badge revoked">已吊销</span> 已作废（可「重新签发」生成新 License 续期/替换）
+      <br>🔁 重新签发：用原参数（客户/产品/节点/功能点/机器码）生成新 License，有效期从今天重新起算，旧 License 自动标记吊销。
+    </p>
+  </div>
 </div>
 
 <script>
@@ -162,6 +212,127 @@ function clearForm() {
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// ---------- 已签发台账 ----------
+let licCache = [];
+
+async function loadLicenses() {
+  try {
+    const token = sessionStorage.getItem('issuerToken') || '';
+    const resp = await fetch('/api/v1/licenses', { headers: { 'X-Issuer-Token': token } });
+    if (resp.status === 401) { return; } // 未鉴权不显示，等签发时输入
+    const data = await resp.json();
+    if (data.success) { licCache = data.licenses || []; }
+  } catch (e) { /* 静默 */ }
+  renderLicenses();
+}
+
+function badge(status) {
+  const map = { valid: ['有效','valid'], expired: ['已过期','expired'], revoked: ['已吊销','revoked'] };
+  const [txt, cls] = map[status] || [status, 'expired'];
+  return '<span class="badge ' + cls + '">' + txt + '</span>';
+}
+
+function fmtTime(t) {
+  if (!t) return '-';
+  const d = new Date(t);
+  if (isNaN(d)) return String(t).slice(0, 10);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function shortId(id) {
+  return id ? id.slice(0, 14) + '…' : '-';
+}
+
+function renderLicenses() {
+  const q = (document.getElementById('searchBox').value || '').trim().toLowerCase();
+  const rows = licCache.filter(r => {
+    if (!q) return true;
+    return (r.customer || '').toLowerCase().includes(q)
+      || (r.product || '').toLowerCase().includes(q)
+      || (r.licenseId || '').toLowerCase().includes(q);
+  });
+  const tbody = document.getElementById('licTable');
+  const empty = document.getElementById('licEmpty');
+  document.getElementById('licCount').textContent = '共 ' + rows.length + ' 条';
+  if (rows.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  tbody.innerHTML = rows.map(r => {
+    const opRevoke = r.status === 'valid'
+      ? '<button class="op-btn danger" onclick="revokeLic(\'' + r.licenseId + '\')">吊销</button>'
+      : '';
+    const opReissue = (r.status === 'valid' || r.status === 'expired')
+      ? '<button class="op-btn" onclick="reissueLic(\'' + r.licenseId + '\')">重新签发</button>'
+      : '';
+    const dl = '<button class="op-btn" onclick="downloadLic(\'' + r.licenseId + '\')">下载</button>';
+    return '<tr>'
+      + '<td>' + badge(r.status) + '</td>'
+      + '<td class="mono" title="' + escapeHtml(r.licenseId || '') + '">' + escapeHtml(shortId(r.licenseId)) + '</td>'
+      + '<td>' + escapeHtml(r.customer || '-') + '</td>'
+      + '<td>' + escapeHtml(r.product || '-') + ' / ' + escapeHtml(r.edition || '-') + '</td>'
+      + '<td>' + (r.maxNodes || 0) + '</td>'
+      + '<td>' + escapeHtml((r.features || []).join(',')) + '</td>'
+      + '<td>' + fmtTime(r.issuedAt) + '</td>'
+      + '<td>' + fmtTime(r.expiresAt) + '</td>'
+      + '<td>' + dl + opReissue + opRevoke + '</td>'
+      + '</tr>';
+  }).join('');
+}
+
+function getToken() {
+  let t = sessionStorage.getItem('issuerToken');
+  if (!t) {
+    t = prompt('请输入签发 Token：') || '';
+    if (t) sessionStorage.setItem('issuerToken', t);
+  }
+  return t;
+}
+
+async function apiPost(url, body) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Issuer-Token': getToken() },
+    body: body ? JSON.stringify(body) : '{}'
+  });
+  return resp.json();
+}
+
+async function revokeLic(id) {
+  if (!confirm('确定吊销 ' + id + ' ？吊销后该授权作废，可重新签发替换。')) return;
+  try {
+    const data = await apiPost('/api/v1/licenses/' + id + '/revoke', { note: '人工吊销' });
+    alert(data.message || '吊销失败');
+    await loadLicenses();
+  } catch (e) { alert('请求失败: ' + e); }
+}
+
+async function reissueLic(id) {
+  if (!confirm('重新签发 ' + id + ' ？将生成新 License（新 ID、有效期从今天起算），旧 License 自动吊销。')) return;
+  try {
+    const data = await apiPost('/api/v1/licenses/' + id + '/reissue', {});
+    if (data.success) {
+      const res = document.getElementById('result');
+      res.className = 'result ok';
+      res.innerHTML = '<h3>✅ 重新签发成功（新 License）</h3>'
+        + '<pre>' + escapeHtml(data.licenseJson || '') + '</pre>'
+        + '<a class="dl" download="license.json" href="data:text/plain;charset=utf-8,' + encodeURIComponent(data.licenseJson || '') + '">⬇ 下载 license.json</a>';
+    } else {
+      alert(data.message || '重新签发失败');
+    }
+    await loadLicenses();
+  } catch (e) { alert('请求失败: ' + e); }
+}
+
+function downloadLic() {
+  alert('台账仅存授权记录（不含签名文件）。如需再次下载完整 license.json，请使用「重新签发」生成新 License。');
+}
+
+// 页面加载时拉取台账
+loadLicenses();
 </script>
 </body>
 </html>`

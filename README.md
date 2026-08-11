@@ -147,26 +147,31 @@ curl http://<host>:8090/api/v1/license/status
 
 **安全保证**：activate 接口不需要管理 Token，但只有**厂商私钥签名 + 绑定本机机器码**的 License 才能激活成功；伪造机器码 → `MACHINE_MISMATCH`，篡改内容 → `INVALID_SIGNATURE`，且激活失败不影响当前已激活状态。
 
-## 厂商签发服务（licen-issuer）
+## 厂商签发服务（licen-issuer）—— 统一授权管理台
 
-面向客服/运营的 **Web 签发工具**：输入客户机器码 → 一键生成 license.json 下载回传。
+面向客服/运营的 **Web 签发+管理工具**：输入客户机器码 → 一键生成 license.json 下载回传；**已签发授权全部留痕**（台账），可查看/搜索/吊销/重新签发。
 
 ```bash
 # 构建
 go build -o licen-issuer ./cmd/licen-issuer
 
-# 配置（config.yaml：端口、厂商私钥、签发 Token）
+# 配置（config.yaml：端口、厂商私钥、签发 Token、台账路径）
 #   server.port: 8099
 #   issuer.private-key-file: ./keys/private.pem
 #   issuer.admin-token: <务必修改>
+#   issuer.db-path: ./data/licenses.json   # 已签发台账（默认 data/licenses.json）
 
 # 启动
 ./licen-issuer -c config.yaml
 ```
 
-- **Web 界面**：`http://<厂商机>:8099/` —— 表单填写机器码/产品/节点数/有效期 → 生成 + 下载 license.json
-- **REST API**：`POST /api/v1/issue`（`X-Issuer-Token` 鉴权）
-- **表单 API**：`POST /api/v1/issue-text`（兼容 curl form 提交）
+- **Web 界面**：`http://<厂商机>:8099/` —— ①签发表单（机器码/产品/节点数/有效期 → 生成+下载 license.json）②**已签发授权台账**（状态：有效/已过期/已吊销；可按客户/产品/ID 搜索；操作：下载/重新签发/吊销）
+- **REST API**（均 `X-Issuer-Token` 鉴权）：
+  - `POST /api/v1/issue` 签发（JSON）；`POST /api/v1/issue-text` 兼容表单
+  - `GET /api/v1/licenses` 已签发列表（含派生状态）
+  - `POST /api/v1/licenses/{id}/revoke` 吊销（记原因，作废标记）
+  - `POST /api/v1/licenses/{id}/reissue` 重新签发（原参数续期，旧 License 自动吊销并关联新 ID）
+- **台账持久化**：`data/licenses.json`（原子写盘），重启不丢；吊销/重签全程留痕，授权一目了然
 
 ```bash
 # REST 签发示例

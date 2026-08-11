@@ -57,6 +57,26 @@ curl http://<host>:8090/api/v1/health
 curl http://<host>:8090/api/v1/license/status
 ```
 
+## 加固构建（防逆向）
+
+生产发布建议使用加固构建脚本 `scripts/build-release.sh`，产物为**静态链接 + 去符号 + garble 混淆**：
+
+```bash
+./scripts/build-release.sh                # 当前平台（linux/amd64）
+./scripts/build-release.sh linux amd64    # 交叉构建指定平台
+SKIP_GARBLE=1 ./scripts/build-release.sh  # 仅静态+去符号，跳过混淆（构建更快）
+```
+
+产物输出到 `dist/<version>/<os>-<arch>/`，包含：
+
+- `licen-server` / `licen-tool`：静态链接二进制，**无符号表**，函数名/字符串全部混淆（garble `-literals -tiny -seed=random`，每次构建结果不同，防版本比对）
+- `config.yaml.example`：配置模板
+- `PROTOCOL.md`：协议契约
+
+构建后脚本自动校验「静态链接」和「符号剥离」两项加固指标。
+
+> 前置条件：Go ≥ 1.26（garble 最新版依赖）、garble（缺失时脚本自动安装）。
+
 ## 部署指南（客户 VM）
 
 1. 上传 `licen-server` 二进制、`config.yaml`、`license.json`、`keys/public.pem`
@@ -92,6 +112,7 @@ internal/node/         节点注册/心跳/名额控制/回收
 internal/api/          REST API
 licen-sdk/             Java 客户端 SDK（Spring Boot Starter）
 licen-examples/        接入示例
+scripts/               加固构建脚本（build-release.sh）
 docs/                  设计文档 + 协议契约 + 演示密钥
 ```
 
@@ -102,7 +123,7 @@ docs/                  设计文档 + 协议契约 + 演示密钥
 - **HMAC 心跳**：appSecret 签名 + 时间戳防重放（±5min），常量时间比较
 - **节点名额**：在线节点数 ≥ maxNodes 拒绝注册；心跳超时回收防僵尸占用
 - **三层鉴权**：应用凭证（注册）+ HMAC 签名（心跳）+ 管理 Token（管理 API）
-- **防逆向**：Go 静态编译（musl）、去符号（-s -w）、garble 混淆（构建脚本见 `scripts/build.sh`）
+- **防逆向**：Go 静态编译（CGO_ENABLED=0）、去符号（-s -w）、garble 混淆（构建脚本见 `scripts/build-release.sh`）
 
 ## License
 

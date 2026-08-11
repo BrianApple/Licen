@@ -9,6 +9,7 @@ target/
 licen-server-bin
 licen-tool-bin
 *.exe
+dist/
 
 # C 构建产物
 *.o

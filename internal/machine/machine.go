@@ -5,6 +5,10 @@
 //   - CPU 序列号: /proc/cpuinfo 的 Serial 字段（x86 通常为空，退化为型号+核心数）
 //   - 主 MAC:     /sys/class/net/*/address（过滤虚拟网卡）
 //   - 磁盘序列号: /sys/block/*/device/serial（取第一块非虚拟磁盘）
+//   - 系统 UUID:  /sys/class/dmi/id/product_uuid（虚拟机场景唯一标识，克隆 VM 也唯一）
+//
+// 机器码 = SHA-256(主板|CPU|MAC|磁盘|UUID[|盐])。UUID 是 VM 场景的区分度关键：
+// KVM/VMware/OpenStack 均注入唯一 UUID，弥补 VM 下主板/磁盘序列号常为空、CPU 退化的短板。
 package machine
 
 import (
@@ -39,7 +43,7 @@ func Collect(salt string) HardwareInfo {
 	disk := primaryDiskSerial()
 	uuid := readTrim("/sys/class/dmi/id/product_uuid")
 
-	machineCode := compute(mb, cpu, mac, disk, salt)
+	machineCode := compute(mb, cpu, mac, disk, uuid, salt)
 	return HardwareInfo{
 		MotherboardSerial: mb,
 		CPUSerial:         cpu,
@@ -55,9 +59,9 @@ func Generate(salt string) string {
 	return Collect(salt).MachineCode
 }
 
-func compute(mb, cpu, mac, disk, salt string) string {
+func compute(mb, cpu, mac, disk, uuid, salt string) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%s|%s|%s", mb, cpu, mac, disk)
+	fmt.Fprintf(h, "%s|%s|%s|%s|%s", mb, cpu, mac, disk, uuid)
 	if salt != "" {
 		fmt.Fprintf(h, "|%s", salt)
 	}

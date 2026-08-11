@@ -101,6 +101,11 @@ func cmdMachinecode(args []string) error {
 	fs.Parse(args)
 
 	info := machine.Collect(*salt)
+	if info.MachineCode == "" {
+		fmt.Println("⚠️  无法采集到任何硬件指纹（/sys 不可读或均为空）！")
+		fmt.Println("   请以 root 运行，或检查 /sys/class/dmi/id 与 /sys/block 权限后重试。")
+		return nil
+	}
 	fmt.Println("🔑 本机机器码: " + info.MachineCode)
 	fmt.Println("   硬件信息: " + info.String())
 	fmt.Println("   请将此机器码发送给厂商用于签发 License")

@@ -48,6 +48,9 @@ func NewManager(salt, licenseFile, embeddedPublicKey string) (*Manager, error) {
 	}
 
 	slog.Info("🔑 本机机器码", "machineCode", m.machineCode)
+	if m.machineCode == "" {
+		slog.Warn("⚠️ 无法采集到任何硬件指纹，License 将永远 MACHINE_MISMATCH", "hint", "请以 root 运行 licen-server，检查 /sys/class/dmi/id 与 /sys/block 权限")
+	}
 	return m, nil
 }
 

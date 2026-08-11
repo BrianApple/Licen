@@ -1,14 +1,17 @@
 // Package machine 采集本机硬件信息生成机器码。
 //
 // Linux 下直接读取 sysfs（零依赖）：
+//   - 系统 UUID:  /sys/class/dmi/id/product_uuid（主锚点：VM/物理机均有、克隆唯一、迁移不变）
+//   - 磁盘序列号: /sys/block/*/device/serial（取第一块非虚拟磁盘）
+//   - 主 MAC:     /sys/class/net/*/address（过滤虚拟网卡）
 //   - 主板序列号: /sys/class/dmi/id/board_serial
 //   - CPU 序列号: /proc/cpuinfo 的 Serial 字段（x86 通常为空，退化为型号+核心数）
-//   - 主 MAC:     /sys/class/net/*/address（过滤虚拟网卡）
-//   - 磁盘序列号: /sys/block/*/device/serial（取第一块非虚拟磁盘）
-//   - 系统 UUID:  /sys/class/dmi/id/product_uuid（虚拟机场景唯一标识，克隆 VM 也唯一）
 //
-// 机器码 = SHA-256(主板|CPU|MAC|磁盘|UUID[|盐])。UUID 是 VM 场景的区分度关键：
-// KVM/VMware/OpenStack 均注入唯一 UUID，弥补 VM 下主板/磁盘序列号常为空、CPU 退化的短板。
+// 机器码 = SHA-256(锚点[|盐])，锚点取优先级最高的非空源：
+// UUID > 磁盘序列号 > 主MAC > 主板序列号 > CPU。
+// 只依赖单一锚点而非全源拼接，保证一致性：加盘/换网卡/调 vCPU/VM 迁移
+// 均不改变机器码（UUID 不变则码不变）；空源跳过不参与哈希。
+// 全部源为空返回空串（调用方应报错，而非生成全机器相同的固定码）。
 package machine
 
 import (
@@ -54,14 +57,33 @@ func Collect(salt string) HardwareInfo {
 	}
 }
 
-// Generate 仅返回机器码
+// Generate 仅返回机器码；全部指纹源为空时返回空串（调用方应报错）
 func Generate(salt string) string {
 	return Collect(salt).MachineCode
 }
 
+// compute 锚点策略计算机器码：取优先级最高的非空源作为锚点。
+// 优先级：系统UUID > 磁盘序列号 > 主MAC > 主板序列号 > CPU。
+// 锚点非空才参与哈希（空源跳过，消除空串占位歧义）；全部为空返回空串。
 func compute(mb, cpu, mac, disk, uuid, salt string) string {
+	anchor := ""
+	switch {
+	case uuid != "":
+		anchor = uuid
+	case disk != "":
+		anchor = disk
+	case mac != "":
+		anchor = mac
+	case mb != "":
+		anchor = mb
+	case cpu != "":
+		anchor = cpu
+	}
+	if anchor == "" {
+		return ""
+	}
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%s|%s|%s|%s", mb, cpu, mac, disk, uuid)
+	fmt.Fprintf(h, "%s", anchor)
 	if salt != "" {
 		fmt.Fprintf(h, "|%s", salt)
 	}

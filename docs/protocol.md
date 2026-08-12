@@ -19,10 +19,10 @@
 **请求**：
 ```json
 {
-  "appKey": "ai-engine",
+  "appKey": "hxapigate",
   "appSecret": "xxx",
   "nodeId": "uuid-optional（客户端生成，可空则由服务端分配）",
-  "nodeName": "ai-engine-1（可选）",
+  "nodeName": "hxapigate-1（可选）",
   "ip": "10.0.0.5（可选）",
   "version": "1.0.0（可选）"
 }
@@ -60,7 +60,7 @@ timestamp = 当前 Unix 毫秒
 **请求**：
 ```json
 {
-  "appKey": "ai-engine",
+  "appKey": "hxapigate",
   "nodeId": "uuid",
   "timestamp": "1786433000000",
   "sign": "hex-hmac"
@@ -80,9 +80,9 @@ timestamp = 当前 Unix 毫秒
   "result": "VALID",
   "machineCode": "sha256-hex",
   "licenseId": "LIC-XXXX",
-  "product": "ai-engine",
+  "product": "hxapigate",
   "edition": "enterprise",
-  "customer": "某公司",
+  "customer": "公司一",
   "maxNodes": 10,
   "features": ["ai-inference", "nlp"],
   "issuedAt": "2026-08-11T00:00:00+08:00",
@@ -125,7 +125,7 @@ timestamp = 当前 Unix 毫秒
 ```json
 { "success": true, "message": "License 激活成功，全部功能已启用",
   "licenseId": "LIC-XXXX", "product": "licen-server", "edition": "enterprise",
-  "customer": "某公司", "maxNodes": 50, "features": ["server-core"], "expiresAt": "..." }
+  "customer": "公司二", "maxNodes": 50, "features": ["server-core"], "expiresAt": "..." }
 ```
 
 **失败响应 400**（伪造/篡改/换机器均无法激活）：

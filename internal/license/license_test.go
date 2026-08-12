@@ -10,7 +10,7 @@ func buildLicense(t *testing.T, priv *rsa.PrivateKey, machineCode, expiresAt str
 	t.Helper()
 	m := &Model{
 		LicenseID:   "LIC-TEST-0001",
-		Product:     "ai-engine",
+		Product:     "hxapigate",
 		Edition:     "enterprise",
 		MachineCode: machineCode,
 		MaxNodes:    10,

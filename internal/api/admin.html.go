@@ -104,7 +104,7 @@ const app = createApp({
     const apps = ref([]);
     const audits = ref([]);
     const createOpen = ref(false);
-    const appForm = reactive({ name: '', product: 'licen-server', appKey: '', appSecret: '' });
+    const appForm = reactive({ name: '', product: 'iotgate', appKey: '', appSecret: '' });
 
     const lic = computed(() => licData.value && licData.value.license ? licData.value.license : null);
     const valid = computed(() => licData.value ? licData.value.valid : false);
@@ -158,7 +158,7 @@ const app = createApp({
     }
 
     function openCreate() {
-      Object.assign(appForm, { name: '', product: 'licen-server', appKey: '', appSecret: '' });
+      Object.assign(appForm, { name: '', product: 'iotgate', appKey: '', appSecret: '' });
       createOpen.value = true;
     }
 

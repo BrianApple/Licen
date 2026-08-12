@@ -207,6 +207,7 @@ func (s *Server) handleLicenseStatus(w http.ResponseWriter, _ *http.Request) {
 type registerReq struct {
 	AppKey    string `json:"appKey"`
 	AppSecret string `json:"appSecret"`
+	Product   string `json:"product"` // SDK 自声明的产品标识（可选，旧 SDK 宽松兼容）
 	NodeID    string `json:"nodeId"`
 	NodeName  string `json:"nodeName"`
 	IP        string `json:"ip"`
@@ -222,7 +223,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if req.NodeID == "" {
 		req.NodeID = newUUID()
 	}
-	result := s.nodeSvc.Register(req.AppKey, req.AppSecret, req.NodeID, req.NodeName, req.IP, req.Version)
+	result := s.nodeSvc.Register(req.AppKey, req.AppSecret, req.Product, req.NodeID, req.NodeName, req.IP, req.Version)
 	writeJSON(w, http.StatusOK, result)
 }
 

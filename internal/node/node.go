@@ -50,7 +50,8 @@ func ok(nodeID, licID, expiresAt string, online, max int) Result {
 }
 
 // Register 客户端注册（首次接入或重启续约）
-func (s *Service) Register(appKey, appSecret, nodeID, nodeName, ip, version string) Result {
+// product：SDK 自声明的产品标识（旧 SDK 可传空串，走宽松模式）
+func (s *Service) Register(appKey, appSecret, product, nodeID, nodeName, ip, version string) Result {
 	// 1. 应用凭证校验
 	app, err := s.store.FindApp(appKey)
 	if err != nil || app == nil || !app.Enabled {
@@ -62,20 +63,28 @@ func (s *Service) Register(appKey, appSecret, nodeID, nodeName, ip, version stri
 		return fail("APP_AUTH_FAILED")
 	}
 
-	// 2. License 有效性
-	if !s.licMgr.IsValid() {
-		return fail("LICENSE_INVALID:" + s.licMgr.Result().String())
-	}
-
-	// 3. 产品匹配（License.product 与 app.product 均非空且不一致时拒绝）
-	lic := s.licMgr.License()
-	if lic.Product != "" && app.Product != "" && lic.Product != app.Product {
+	// 2. 三锁校验（产品对应关系：SDK 声明 == App 凭证绑定 == License 签名授权）
+	// 锁1：SDK 自声明产品必须与 App 凭证绑定的产品一致（防凭证串用到其他产品）
+	if product != "" && app.Product != "" && product != app.Product {
+		s.store.AuditLog("NODE_REJECT", "nodeId="+nodeID+" appKey="+appKey+" product="+product+" appProduct="+app.Product)
 		return fail("PRODUCT_MISMATCH")
+	}
+	// 产品标识确定：SDK 声明优先，其次 App 凭证绑定
+	prod := product
+	if prod == "" {
+		prod = app.Product
+	}
+	// 锁2：该产品必须有有效授权（精确匹配，不再全局随机）
+	lic := s.licMgr.LicenseFor(prod)
+	if lic == nil || s.licMgr.ResultFor(prod) != license.Valid {
+		s.store.AuditLog("NODE_REJECT", "nodeId="+nodeID+" appKey="+appKey+" product="+prod+" 无有效授权")
+		return fail("PRODUCT_NOT_LICENSED")
 	}
 
 	now := time.Now()
 	timeoutBefore := now.Add(-time.Duration(s.timeoutSec) * time.Second)
-	maxNodes := s.licMgr.MaxNodes()
+	// 锁3：限额按本产品（MaxNodesFor），不用所有产品之和
+	maxNodes := s.licMgr.MaxNodesFor(prod)
 
 	// 4. 已注册节点 → 续约（不占新名额）
 	existing, _ := s.store.FindNode(nodeID)
@@ -87,9 +96,9 @@ func (s *Service) Register(appKey, appSecret, nodeID, nodeName, ip, version stri
 			slog.Error("节点续约失败", "err", err)
 			return fail("STORE_ERROR")
 		}
-		s.store.AuditLog("NODE_RENEW", "nodeId="+nodeID+" appKey="+appKey)
+		s.store.AuditLog("NODE_RENEW", "nodeId="+nodeID+" appKey="+appKey+" product="+prod)
 		online, _ := s.store.CountOnline(timeoutBefore)
-		slog.Info("🔄 节点续约", "nodeId", nodeID, "name", nodeName)
+		slog.Info("🔄 节点续约", "nodeId", nodeID, "name", nodeName, "product", prod)
 		return ok(nodeID, lic.LicenseID, lic.ExpiresAt, int(online), maxNodes)
 	}
 
@@ -146,13 +155,18 @@ func (s *Service) Heartbeat(nodeID, appKey, timestamp, sign string) Result {
 	if err := s.store.TouchHeartbeat(nodeID); err != nil {
 		return fail("STORE_ERROR")
 	}
-	lic := s.licMgr.License()
+	// 返回本产品 License 信息（通过 node 所属 App 的产品标识精确匹配，避免串产品）
 	licID, expiresAt := "", ""
-	if lic != nil {
-		licID, expiresAt = lic.LicenseID, lic.ExpiresAt
+	maxNodes := 0
+	if app, err := s.store.FindApp(node.AppKey); err == nil && app != nil {
+		lic := s.licMgr.LicenseFor(app.Product)
+		if lic != nil {
+			licID, expiresAt = lic.LicenseID, lic.ExpiresAt
+			maxNodes = s.licMgr.MaxNodesFor(app.Product)
+		}
 	}
 	online, _ := s.store.CountOnline(time.Now().Add(-time.Duration(s.timeoutSec) * time.Second))
-	return ok(nodeID, licID, expiresAt, int(online), s.licMgr.MaxNodes())
+	return ok(nodeID, licID, expiresAt, int(online), maxNodes)
 }
 
 // ListNodes 节点列表

@@ -46,9 +46,12 @@ type Config struct {
 		Port int `yaml:"port"`
 	} `yaml:"server"`
 	Issuer struct {
-		PrivateKeyFile string `yaml:"private-key-file"`
-		AdminToken     string `yaml:"admin-token"`
-		DBPath         string `yaml:"db-path"`
+		PrivateKeyFile       string `yaml:"private-key-file"`
+		AdminToken           string `yaml:"admin-token"`
+		DBPath               string `yaml:"db-path"`
+		ProductsPath         string `yaml:"products-path"`
+		ArchivePath          string `yaml:"archive-path"`
+		CustomerProductsPath string `yaml:"customer-products-path"`
 	} `yaml:"issuer"`
 }
 
@@ -67,6 +70,15 @@ func loadConfig(path string) (*Config, error) {
 	if cfg.Issuer.DBPath == "" {
 		cfg.Issuer.DBPath = "data/licenses.json"
 	}
+	if cfg.Issuer.ProductsPath == "" {
+		cfg.Issuer.ProductsPath = "data/products.json"
+	}
+	if cfg.Issuer.ArchivePath == "" {
+		cfg.Issuer.ArchivePath = "data/archive"
+	}
+	if cfg.Issuer.CustomerProductsPath == "" {
+		cfg.Issuer.CustomerProductsPath = "data/customer-products.json"
+	}
 	return &cfg, nil
 }
 
@@ -76,10 +88,13 @@ type IssuerServer struct {
 	priv       *rsa.PrivateKey
 	adminToken string
 	store      *Store
+	products   *ProductStore
+	archive    *ArchiveStore
+	cpStore    *CustomerProductStore
 }
 
-func NewIssuer(priv *rsa.PrivateKey, adminToken string, store *Store) *IssuerServer {
-	return &IssuerServer{priv: priv, adminToken: adminToken, store: store}
+func NewIssuer(priv *rsa.PrivateKey, adminToken string, store *Store, products *ProductStore, archive *ArchiveStore, cpStore *CustomerProductStore) *IssuerServer {
+	return &IssuerServer{priv: priv, adminToken: adminToken, store: store, products: products, archive: archive, cpStore: cpStore}
 }
 
 // ---------- 签发请求/响应 ----------
@@ -161,6 +176,24 @@ func (s *IssuerServer) handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/customers", s.auth(s.handleCustomers))
 	mux.HandleFunc("POST /api/v1/licenses/{id}/revoke", s.auth(s.handleRevoke))
 	mux.HandleFunc("POST /api/v1/licenses/{id}/reissue", s.auth(s.handleReissue))
+	// 产品库 + SDK 分发
+	mux.HandleFunc("GET /api/v1/products", s.auth(s.handleProducts))
+	mux.HandleFunc("POST /api/v1/products", s.auth(s.handleCreateProduct))
+	mux.HandleFunc("PUT /api/v1/products/{id}", s.auth(s.handleUpdateProduct))
+	mux.HandleFunc("DELETE /api/v1/products/{id}", s.auth(s.handleDeleteProduct))
+	mux.HandleFunc("GET /api/v1/sdk/{lang}/download", s.auth(s.handleSDKDownload))
+	// 客户维度归档
+	mux.HandleFunc("GET /api/v1/archive", s.auth(s.handleArchive))
+	mux.HandleFunc("GET /api/v1/archive/{customer}/{product}/licenses/{file}", s.auth(s.handleArchiveLicenseDownload))
+	mux.HandleFunc("GET /api/v1/archive/{customer}/{product}/sdk/{file}", s.auth(s.handleArchiveSDKDownload))
+	// 客户-产品对应关系
+	mux.HandleFunc("GET /api/v1/customer-products", s.auth(s.handleCustomerProducts))
+	mux.HandleFunc("POST /api/v1/customer-products", s.auth(s.handleCreateCustomer))
+	mux.HandleFunc("PUT /api/v1/customer-products/{customer}", s.auth(s.handleUpdateCustomer))
+	mux.HandleFunc("DELETE /api/v1/customer-products/{customer}", s.auth(s.handleDeleteCustomer))
+	mux.HandleFunc("POST /api/v1/customer-products/{customer}/products", s.auth(s.handleBindProduct))
+	mux.HandleFunc("PUT /api/v1/customer-products/{customer}/products/{product}", s.auth(s.handleUpdateBinding))
+	mux.HandleFunc("DELETE /api/v1/customer-products/{customer}/products/{product}", s.auth(s.handleUnbindProduct))
 	return mux
 }
 
@@ -249,6 +282,18 @@ func (s *IssuerServer) doIssue(w http.ResponseWriter, req issueReq) {
 	if err := s.store.Add(rec); err != nil {
 		slog.Warn("⚠️ License 已签发但台账写入失败", "licenseId", m.LicenseID, "err", err)
 	}
+	// 签发产品自动登记到产品库（保证产品库/台账/SDK 三者一致）
+	s.products.EnsureProduct(m.Product)
+	// 客户-产品对应关系自动登记（客户不存在自动创建，产品自动绑定）
+	if m.Customer != "" && s.cpStore != nil {
+		s.cpStore.Ensure(m.Customer, m.Product)
+	}
+	// 客户维度归档：证书文件落盘 archive/{customer}/{product}/licenses/{licenseId}.json
+	if m.Customer != "" && s.archive != nil {
+		if err := s.archive.SaveLicense(m.Customer, m.Product, m.LicenseID, jsonBytes); err != nil {
+			slog.Warn("⚠️ 证书归档失败", "licenseId", m.LicenseID, "customer", m.Customer, "err", err)
+		}
+	}
 	slog.Info("🔑 License 已签发", "licenseId", m.LicenseID, "product", m.Product, "customer", m.Customer)
 	writeJSON(w, http.StatusOK, issueResp{
 		Success:     true,
@@ -277,10 +322,10 @@ func (s *IssuerServer) handleLicenses(w http.ResponseWriter, _ *http.Request) {
 		items = append(items, listItem{LicenseRecord: r, Status: st, DaysLeft: r.DaysLeft(now)})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"total":   len(items),
+		"success":  true,
+		"total":    len(items),
 		"licenses": items,
-		"stats":   stats,
+		"stats":    stats,
 	})
 }
 
@@ -336,6 +381,12 @@ func (s *IssuerServer) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "message": "吊销失败: " + err.Error()})
 		return
 	}
+	// 归档吊销标记
+	if rec.Customer != "" && s.archive != nil {
+		if err := s.archive.MarkRevoked(rec.Customer, rec.Product, id); err != nil {
+			slog.Warn("⚠️ 归档吊销标记失败", "licenseId", id, "err", err)
+		}
+	}
 	slog.Info("🚫 License 已吊销", "licenseId", id, "note", req.Note)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "License 已吊销", "license": rec})
 }
@@ -381,6 +432,12 @@ func (s *IssuerServer) handleReissue(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "message": "旧记录更新失败: " + err.Error()})
 		return
 	}
+	// 旧证书归档吊销标记
+	if old.Customer != "" && s.archive != nil {
+		if err := s.archive.MarkRevoked(old.Customer, old.Product, old.LicenseID); err != nil {
+			slog.Warn("⚠️ 旧证书归档吊销标记失败", "licenseId", old.LicenseID, "err", err)
+		}
+	}
 	// 新记录：关联旧 ID
 	expiresAt, _ := time.Parse(time.RFC3339Nano, m.ExpiresAt)
 	rec := LicenseRecord{
@@ -398,8 +455,14 @@ func (s *IssuerServer) handleReissue(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Add(rec); err != nil {
 		slog.Warn("⚠️ 重新签发成功但台账写入失败", "licenseId", m.LicenseID, "err", err)
 	}
-	slog.Info("🔁 License 重新签发", "from", old.LicenseID, "to", m.LicenseID, "customer", m.Customer)
+	// 新证书归档
 	jsonBytes, _ := json.MarshalIndent(m, "", "  ")
+	if m.Customer != "" && s.archive != nil {
+		if err := s.archive.SaveLicense(m.Customer, m.Product, m.LicenseID, jsonBytes); err != nil {
+			slog.Warn("⚠️ 重新签发证书归档失败", "licenseId", m.LicenseID, "err", err)
+		}
+	}
+	slog.Info("🔁 License 重新签发", "from", old.LicenseID, "to", m.LicenseID, "customer", m.Customer)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":     true,
 		"message":     "重新签发成功",
@@ -464,9 +527,27 @@ func main() {
 		slog.Error("台账初始化失败", "err", err)
 		os.Exit(1)
 	}
+	products, err := NewProductStore(cfg.Issuer.ProductsPath)
+	if err != nil {
+		slog.Error("产品库初始化失败", "err", err)
+		os.Exit(1)
+	}
+	archive, err := NewArchiveStore(cfg.Issuer.ArchivePath)
+	if err != nil {
+		slog.Error("归档目录初始化失败", "err", err)
+		os.Exit(1)
+	}
+	cpStore, err := NewCustomerProductStore(cfg.Issuer.CustomerProductsPath)
+	if err != nil {
+		slog.Error("客户-产品对应关系初始化失败", "err", err)
+		os.Exit(1)
+	}
 	slog.Info("📒 已签发台账", "path", cfg.Issuer.DBPath, "records", len(store.All()))
+	slog.Info("📦 产品库", "path", cfg.Issuer.ProductsPath, "products", len(products.All()))
+	slog.Info("🗂 客户归档", "path", cfg.Issuer.ArchivePath)
+	slog.Info("🤝 客户-产品对应", "path", cfg.Issuer.CustomerProductsPath, "customers", len(cpStore.All()))
 
-	issuer := NewIssuer(priv, cfg.Issuer.AdminToken, store)
+	issuer := NewIssuer(priv, cfg.Issuer.AdminToken, store, products, archive, cpStore)
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler: issuer.handler(),

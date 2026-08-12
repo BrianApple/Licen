@@ -129,19 +129,26 @@ func (m *Manager) Reload() bool {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		product := strings.TrimSuffix(e.Name(), ".json")
 		lic, err := Load(filepath.Join(m.licenseFile, e.Name()))
 		if err != nil {
 			slog.Warn("⚠️ License 文件解析失败", "file", e.Name(), "err", err.Error())
 			continue
 		}
 		res := Validate(lic, m.PublicKey, m.machineCode, time.Now())
-		m.licenses[product] = lic
-		m.results[product] = res
+		// 以签名内容 product 为唯一事实（文件名仅作展示；不一致时告警，防改名错乱）
+		key := lic.Product
+		if key == "" {
+			key = strings.TrimSuffix(e.Name(), ".json") // 兼容旧 License 无 product 字段
+		}
+		if key != strings.TrimSuffix(e.Name(), ".json") {
+			slog.Warn("⚠️ License 文件名与内容 product 不一致（以签名内容为准）", "file", e.Name(), "contentProduct", lic.Product)
+		}
+		m.licenses[key] = lic
+		m.results[key] = res
 		if res == Valid {
 			anyValid = true
 		}
-		slog.Info("📄 License 加载", "file", e.Name(), "product", lic.Product, "result", res.String())
+		slog.Info("📄 License 加载", "file", e.Name(), "product", key, "result", res.String())
 	}
 	if len(m.licenses) == 0 {
 		slog.Info("📄 License 目录为空", "dir", m.licenseFile)
@@ -233,10 +240,38 @@ func (m *Manager) License() *Model {
 	if m.license != nil {
 		return m.license
 	}
+	// 优先返回有效产品（确定性：按 product 排序取第一个有效，避免 map 随机）
+	var valid []*Model
+	for _, lic := range m.licenses {
+		if res, ok := m.results[lic.Product]; ok && res == Valid {
+			valid = append(valid, lic)
+		}
+	}
+	if len(valid) > 0 {
+		sort.Slice(valid, func(i, j int) bool { return valid[i].Product < valid[j].Product })
+		return valid[0]
+	}
 	for _, lic := range m.licenses {
 		return lic
 	}
 	return nil
+}
+
+// ResultFor 指定产品的校验结果（目录模式；单文件模式仅当 product 匹配时返回）
+func (m *Manager) ResultFor(product string) ValidationResult {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if !m.isDirMode() {
+		if m.license != nil && (product == "" || m.license.Product == product) {
+			return m.result
+		}
+		return Missing
+	}
+	res, ok := m.results[product]
+	if !ok {
+		return Missing
+	}
+	return res
 }
 
 // LicenseFor 指定产品的 License（目录模式；单文件模式仅当 product 匹配时返回）

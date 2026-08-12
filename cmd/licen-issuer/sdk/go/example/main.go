@@ -1,3 +1,5 @@
+//go:build ignore
+
 // licen-sdk-go 使用示例。
 //
 // 运行：go run ./example/main.go

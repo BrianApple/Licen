@@ -4,7 +4,7 @@
 //
 //	licen-tool gen-keypair -d ./keys                  # 生成 RSA 密钥对
 //	licen-tool machinecode                            # 查看本机机器码
-//	licen-tool gen-license -k keys/private.pem -m <机器码> -p ai-engine -n 10 -d 365 -c "客户名" -o license.json
+//	licen-tool gen-license -k keys/private.pem -m <机器码> -p hxapigate -n 10 -d 365 -c "客户名" -o license.json
 //	licen-tool verify -k keys/public.pem -l license.json
 package main
 
@@ -60,7 +60,7 @@ func usage() {
 示例:
   licen-tool gen-keypair -d ./keys
   licen-tool machinecode
-  licen-tool gen-license -k keys/private.pem -m <机器码> -p ai-engine -n 10 -d 365 -c "某公司" -o license.json
+  licen-tool gen-license -k keys/private.pem -m <机器码> -p hxapigate -n 10 -d 365 -c "公司一" -o license.json
   licen-tool verify -k keys/public.pem -l license.json
 `)
 }
@@ -118,7 +118,7 @@ func cmdGenLicense(args []string) error {
 	fs := flag.NewFlagSet("gen-license", flag.ExitOnError)
 	privateKey := fs.String("k", "", "私钥文件路径（必填）")
 	machineCode := fs.String("m", "", "绑定机器码（必填）")
-	product := fs.String("p", "", "产品标识，如 ai-engine（必填）")
+	product := fs.String("p", "", "产品标识，如 hxapigate（必填）")
 	edition := fs.String("e", "enterprise", "版本/套餐")
 	maxNodes := fs.Int("n", 1, "最大并发节点数")
 	features := fs.String("f", "", "功能点列表，逗号分隔，如 ai-inference,nlp")

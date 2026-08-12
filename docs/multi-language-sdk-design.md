@@ -105,7 +105,7 @@ NODE_LIMIT_REACHED / NODE_NOT_FOUND / SIGN_INVALID / TIMESTAMP_REJECTED / TIMEST
   from licen_sdk import LicenClient
   client = LicenClient(
       server_url="http://10.0.0.10:8090",
-      app_key="ai-engine",
+      app_key="hxapigate",
       app_secret="xxx",
   )
   client.start()
@@ -126,7 +126,7 @@ NODE_LIMIT_REACHED / NODE_NOT_FOUND / SIGN_INVALID / TIMESTAMP_REJECTED / TIMEST
   ```go
   client, err := licen.NewClient(licen.Config{
       ServerURL: "http://10.0.0.10:8090",
-      AppKey:    "ai-engine",
+      AppKey:    "hxapigate",
       AppSecret: "xxx",
   })
   client.Start(ctx)
@@ -150,7 +150,7 @@ NODE_LIMIT_REACHED / NODE_NOT_FOUND / SIGN_INVALID / TIMESTAMP_REJECTED / TIMEST
   #include <licen.h>
   licen_handle_t h = licen_init(&(licen_config_t){
       .server_url = "http://10.0.0.10:8090",
-      .app_key = "ai-engine",
+      .app_key = "hxapigate",
       .app_secret = "xxx",
       .node_name = "edge-gw-1",
   });

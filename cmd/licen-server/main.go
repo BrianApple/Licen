@@ -104,13 +104,13 @@ func bootstrapDefaultApp(st *store.Store) {
 		return
 	}
 	app := &store.App{
-		AppKey:    "ai-engine",
+		AppKey:    "hxapigate",
 		AppSecret: "licen-demo-secret-2026",
-		Product:   "ai-engine",
-		Name:      "AI引擎（默认示例应用）",
+		Product:   "hxapigate",
+		Name:      "HXAPIGate智能网关（默认示例应用）",
 		Enabled:   true,
 	}
 	if err := st.CreateApp(app); err == nil {
-		slog.Warn("🛠️ 已创建默认示例应用: appKey=ai-engine appSecret=licen-demo-secret-2026（生产环境请务必修改！）")
+		slog.Warn("🛠️ 已创建默认示例应用: appKey=hxapigate appSecret=licen-demo-secret-2026（生产环境请务必修改！）")
 	}
 }

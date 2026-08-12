@@ -16,18 +16,18 @@ import (
 
 // LicenseRecord 一条已签发 License 的台账记录
 type LicenseRecord struct {
-	LicenseID   string    `json:"licenseId"`
-	Product     string    `json:"product"`
-	Edition     string    `json:"edition"`
-	Customer    string    `json:"customer"`
-	MachineCode string    `json:"machineCode"`
-	MaxNodes    int       `json:"maxNodes"`
-	Features    []string  `json:"features"`
-	IssuedAt    time.Time `json:"issuedAt"`
-	ExpiresAt   time.Time `json:"expiresAt"`
-	Revoked     bool      `json:"revoked"`
+	LicenseID   string     `json:"licenseId"`
+	Product     string     `json:"product"`
+	Edition     string     `json:"edition"`
+	Customer    string     `json:"customer"`
+	MachineCode string     `json:"machineCode"`
+	MaxNodes    int        `json:"maxNodes"`
+	Features    []string   `json:"features"`
+	IssuedAt    time.Time  `json:"issuedAt"`
+	ExpiresAt   time.Time  `json:"expiresAt"`
+	Revoked     bool       `json:"revoked"`
 	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
-	RevokeNote  string    `json:"revokeNote,omitempty"`
+	RevokeNote  string     `json:"revokeNote,omitempty"`
 	// ReissuedTo 重新签发后的新 LicenseID（吊销作废后替换）
 	ReissuedTo string `json:"reissuedTo,omitempty"`
 	// ReissuedFrom 本 License 由哪个旧 License 重新签发而来
@@ -142,16 +142,16 @@ func (s *Store) save() error {
 
 // CustomerSummary 客户维度汇总（预填签发表单用）
 type CustomerSummary struct {
-	Customer    string    `json:"customer"`
-	LastProduct string    `json:"lastProduct"`
-	LastEdition string    `json:"lastEdition"`
-	LastNodes   int       `json:"lastNodes"`
-	LastFeatures []string `json:"lastFeatures"`
-	MachineCode string    `json:"machineCode"`
-	LastIssued  time.Time `json:"lastIssued"`
-	Licenses    int       `json:"licenses"`
-	ActiveCount int       `json:"activeCount"` // 当前有效（含即将到期）的授权数
-	ExpiringCount int     `json:"expiringCount"` // 30 天内到期数
+	Customer      string    `json:"customer"`
+	LastProduct   string    `json:"lastProduct"`
+	LastEdition   string    `json:"lastEdition"`
+	LastNodes     int       `json:"lastNodes"`
+	LastFeatures  []string  `json:"lastFeatures"`
+	MachineCode   string    `json:"machineCode"`
+	LastIssued    time.Time `json:"lastIssued"`
+	Licenses      int       `json:"licenses"`
+	ActiveCount   int       `json:"activeCount"`   // 当前有效（含即将到期）的授权数
+	ExpiringCount int       `json:"expiringCount"` // 30 天内到期数
 }
 
 // Customers 客户列表（按客户分组汇总，供签发表单预填下拉）

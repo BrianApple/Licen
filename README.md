@@ -104,7 +104,7 @@ go build -o licen-tool ./cmd/licen-tool
 
 # 4. 厂商签发 License（绑定机器码、节点数、功能点、有效期）
 ./licen-tool gen-license -k keys/private.pem \
-    -m <机器码> -p ai-engine -n 10 -f ai-inference,nlp -d 365 -c "某公司" -o license.json
+    -m <机器码> -p hxapigate -n 10 -f ai-inference,nlp -d 365 -c "公司一" -o license.json
 
 # 5. 部署授权服务（客户 VM）：放置 license.json + keys/public.pem + config.yaml
 ./licen-server -c config.yaml
@@ -124,7 +124,7 @@ curl http://<host>:8090/api/v1/license/status
    │  curl /api/v1/machine-code → 机器码
    ▼
 厂商签发（二选一）
-   │  A. CLI:  licen-tool gen-license -k 私钥 -m <机器码> -p licen-server ...
+   │  A. CLI:  licen-tool gen-license -k 私钥 -m <机器码> -p iotgate ...
    │  B. 签发服务: licen-issuer Web 界面 / REST API（见下）
    ▼
 客户上传激活
@@ -159,16 +159,22 @@ go build -o licen-issuer ./cmd/licen-issuer
 #   server.port: 8099
 #   issuer.private-key-file: ./keys/private.pem
 #   issuer.admin-token: <务必修改>
-#   issuer.db-path: ./data/licenses.json   # 已签发台账（默认 data/licenses.json）
+#   issuer.db-path: ./data/licenses.json            # 已签发台账（默认 data/licenses.json）
+#   issuer.products-path: ./data/products.json      # 产品库（默认 data/products.json，空库自动预置样例产品）
+#   issuer.archive-path: ./data/archive             # 客户维度归档（证书+SDK 副本，默认 data/archive）
+#   issuer.customer-products-path: ./data/customer-products.json  # 客户-产品对应关系（默认 data/customer-products.json）
 
 # 启动
 ./licen-issuer -c config.yaml
 ```
 
-- **Web 界面**：`http://<厂商机>:8099/` —— ①签发表单（机器码/产品/节点数/有效期 → 生成+下载 license.json）②**已签发授权台账**（状态：有效/即将到期/已过期/已吊销；可按客户/产品/ID 搜索；操作：下载/**时序**/重新签发/吊销）
+- **Web 界面**：`http://<厂商机>:8099/` —— ①签发表单（机器码/产品/节点数/有效期 → 生成+下载 license.json）②**已签发授权台账**（状态：有效/即将到期/已过期/已吊销；可按客户/产品/ID 搜索；操作：下载/**时序**/重新签发/吊销）③**产品库 & SDK 下载** ④**客户-产品对应** ⑤**客户档案（按客户归档）**
   - 🏷 **签发预填**：客户名下拉选择已有客户，自动带出该客户最近签发参数（产品/版本/节点/功能点/机器码），仅需修改差异项
   - ⏰ **到期提醒**：顶部提醒条 + 统计条（有效/即将到期/已过期/已吊销），台账每行显示剩余天数（绿/橙/红着色），30 天内到期自动标「即将到期」
   - 📜 **授权时序**：点击「时序」查看该授权从最初签发至今的完整续签链（每次签发/续签/吊销留痕，含原因与关联 ID）
+  - 📦 **产品库 & SDK 分发**：管理可授权产品（空库自动预置 HXAPIGate 智能网关 / IOTGate 物联网关样例）；按 语言×产品 下载**定制版 SDK**（源码内嵌产品标识，注册/心跳自动携带，zip 附 `sdk-info.json`）
+  - 🤝 **客户-产品对应**：维护「客户 × 产品」绑定（节点上限/版本/状态）；签发时自动登记；被绑定/有授权记录的产品与客户禁止删除
+  - 🗂 **客户档案**：同一客户使用的产品 SDK 与证书按 `archive/{客户}/{产品}/` 归档（签发证书落盘 licenses/、定制 SDK 落盘 sdk/），可随时下载回传交付
 - **REST API**（均 `X-Issuer-Token` 鉴权）：
   - `POST /api/v1/issue` 签发（JSON）；`POST /api/v1/issue-text` 兼容表单
   - `GET /api/v1/licenses` 已签发列表（含派生状态 + 剩余天数 + 状态统计）
@@ -176,13 +182,16 @@ go build -o licen-issuer ./cmd/licen-issuer
   - `GET /api/v1/customers` 客户汇总（预填签发表单：最近签发参数/有效数/临期数）
   - `POST /api/v1/licenses/{id}/revoke` 吊销（记原因，作废标记）
   - `POST /api/v1/licenses/{id}/reissue` 重新签发（原参数续期，旧 License 自动吊销并关联新 ID）
+  - 产品库：`GET/POST /api/v1/products`、`PUT/DELETE /api/v1/products/{id}`；SDK 下载 `GET /api/v1/sdk/{lang}/download?product=X&customer=Y`
+  - 客户-产品对应：`GET/POST /api/v1/customer-products`、`PUT/DELETE /api/v1/customer-products/{customer}`、`POST/PUT/DELETE .../products[/{product}]`
+  - 客户归档：`GET /api/v1/archive`（归档树）、`GET /api/v1/archive/{customer}/{product}/licenses/{file}`、`GET .../sdk/{file}`
 - **台账持久化**：`data/licenses.json`（原子写盘），重启不丢；吊销/重签全程留痕，授权一目了然
 
 ```bash
 # REST 签发示例
 curl -X POST http://<厂商机>:8099/api/v1/issue \
   -H "Content-Type: application/json" -H "X-Issuer-Token: <token>" \
-  -d '{"machineCode":"<客户机器码>","product":"licen-server","maxNodes":50,"days":365,"customer":"某集团","features":["server-core","api"]}'
+  -d '{"machineCode":"<客户机器码>","product":"iotgate","maxNodes":50,"days":365,"customer":"公司二","features":["server-core","api"]}'
 ```
 
 > 生产务必：私钥由 `licen-tool gen-keypair` 生成且只放在厂商内网；公钥通过 `-ldflags -X main.publicKey=...` 内置进 licen-server 二进制（防公钥替换）。

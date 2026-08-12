@@ -112,9 +112,9 @@
       <AFormItem label="应用名称" name="name" :rules="[{required:true, message:'请输入应用名称'}]">
         <AInput v-model:value="appForm.name" placeholder="如：AI推理节点集群" />
       </AFormItem>
-      <AFormItem label="产品标识" name="product"><AInput v-model:value="appForm.product" placeholder="licen-server" /></AFormItem>
+      <AFormItem label="产品标识" name="product"><AInput v-model:value="appForm.product" placeholder="iotgate" /></AFormItem>
       <AFormItem label="AppKey" name="appKey" :rules="[{required:true, message:'请输入 AppKey'}]">
-        <AInput v-model:value="appForm.appKey" placeholder="唯一标识，如 licen-server-app" />
+        <AInput v-model:value="appForm.appKey" placeholder="唯一标识，如 iotgate-app" />
       </AFormItem>
       <AFormItem label="AppSecret" name="appSecret"><AInputPassword v-model:value="appForm.appSecret" placeholder="留空自动生成" /></AFormItem>
       <AFormItem>

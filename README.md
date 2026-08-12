@@ -165,10 +165,15 @@ go build -o licen-issuer ./cmd/licen-issuer
 ./licen-issuer -c config.yaml
 ```
 
-- **Web 界面**：`http://<厂商机>:8099/` —— ①签发表单（机器码/产品/节点数/有效期 → 生成+下载 license.json）②**已签发授权台账**（状态：有效/已过期/已吊销；可按客户/产品/ID 搜索；操作：下载/重新签发/吊销）
+- **Web 界面**：`http://<厂商机>:8099/` —— ①签发表单（机器码/产品/节点数/有效期 → 生成+下载 license.json）②**已签发授权台账**（状态：有效/即将到期/已过期/已吊销；可按客户/产品/ID 搜索；操作：下载/**时序**/重新签发/吊销）
+  - 🏷 **签发预填**：客户名下拉选择已有客户，自动带出该客户最近签发参数（产品/版本/节点/功能点/机器码），仅需修改差异项
+  - ⏰ **到期提醒**：顶部提醒条 + 统计条（有效/即将到期/已过期/已吊销），台账每行显示剩余天数（绿/橙/红着色），30 天内到期自动标「即将到期」
+  - 📜 **授权时序**：点击「时序」查看该授权从最初签发至今的完整续签链（每次签发/续签/吊销留痕，含原因与关联 ID）
 - **REST API**（均 `X-Issuer-Token` 鉴权）：
   - `POST /api/v1/issue` 签发（JSON）；`POST /api/v1/issue-text` 兼容表单
-  - `GET /api/v1/licenses` 已签发列表（含派生状态）
+  - `GET /api/v1/licenses` 已签发列表（含派生状态 + 剩余天数 + 状态统计）
+  - `GET /api/v1/licenses/{id}/timeline` 授权时序（完整续签链）
+  - `GET /api/v1/customers` 客户汇总（预填签发表单：最近签发参数/有效数/临期数）
   - `POST /api/v1/licenses/{id}/revoke` 吊销（记原因，作废标记）
   - `POST /api/v1/licenses/{id}/reissue` 重新签发（原参数续期，旧 License 自动吊销并关联新 ID）
 - **台账持久化**：`data/licenses.json`（原子写盘），重启不丢；吊销/重签全程留痕，授权一目了然
@@ -211,6 +216,16 @@ SKIP_GARBLE=1 ./scripts/build-release.sh  # 仅静态+去符号，跳过混淆�
      - `GET /api/v1/admin/nodes` 节点列表
      - `POST /api/v1/admin/apps` 创建应用（appKey/appSecret 给产品 SDK 用）
      - `POST /api/v1/admin/license/reload` 热加载新 License
+
+### 多产品共存（私有化部署多个产品的场景）
+
+客户现场可能分阶段部署了多个产品（如 AI 引擎、应用服务、边缘网关），每个产品需要一个独立的 License，互不影响：
+
+- **licen-server 配置**：`license-file` 指向**目录**（如 `./licenses/`）即进入多产品模式；指向单文件（`./license.json`）保持旧行为（向后兼容）
+- **签发**：每个产品各签发一个 License（issuer 的签发表单填不同 `product`），客户分别上传激活
+- **存储**：目录下自动按产品分文件 `<product>.json`，各产品**独立激活、独立校验、互不覆盖**；吊销/续签一个产品不影响其他产品
+- **查询**：`GET /api/v1/license/status` 返回 `products` 列表（每产品单独状态/节点/功能点/有效期）；`maxNodes` 为所有有效产品之和
+- **节点限额**：每产品按各自 `maxNodes` 限额，总在线节点数不超过所有有效产品之和
 
 ## 产品接入（SDK）
 
